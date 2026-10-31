@@ -84,5 +84,11 @@ Opções: `--sem-atualizar`, e para testes `--nao-abrir-jogo`, `--sem-pausa`, `-
   bytecode SCM (assinaturas conferidas com a biblioteca do Sanny Builder), criação/warp de avatar e carro, sessão host
   com um cliente de rede real, shutdown.
 - `tests/integration.sh` — servidor `.exe` (Wine) + cliente `.exe` (Wine) + cliente Linux.
+- `tests/launcher_wine_test.sh` — iniciador sob Wine contra um servidor HTTPS local que imita o GitHub (atualização,
+  já atualizado, hash errado, limite da API, JSON inválido, falha no meio com restauração do backup, `dinput8.dll` de
+  terceiros, `.asi` em `scripts\`, sem rede, sem `gta_sa.exe`), com um `gta_sa.exe` falso. Usa o build de teste
+  `lbn_launcher_testtls.exe` (aceita o certificado local; não vai no `dist/`).
+- `tests/launcher_real_test.sh` — o `LbnCoopSA-Iniciar.exe` do `dist/` sob Wine contra a release REAL do GitHub
+  (atualizar de 0.0.9, já atualizado, e offline de verdade com `unshare -rn`).
 
 **Nada disso substitui o teste dentro do GTA SA real**, que ainda não foi feito.
