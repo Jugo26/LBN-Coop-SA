@@ -15,11 +15,14 @@ using GetModeInfoFn = RwVideoMode*(__cdecl*)(RwVideoMode*, int);
 using SetModeFn = int(__cdecl*)(int);
 using SetCursorPosFn = BOOL(WINAPI*)(int, int);
 using ClipCursorFn = BOOL(WINAPI*)(const RECT*);
+using SetWindowLongFn = LONG(WINAPI*)(HWND, int, LONG);
+constexpr DWORD kWindowStyle = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
 
 uintptr_t g_origGetModeInfo = 0, g_origSetMode = 0;
 SetCursorPosFn g_origSetCursorPos = nullptr;
 ClipCursorFn g_origClipCursor = nullptr;
-bool g_secondCopy = false;
+SetWindowLongFn g_origSetWindowLong = nullptr;
+bool g_secondCopy = false, g_windowedActive = false;
 int g_width = 1280, g_height = 720;
 
 bool inFront() {
@@ -29,6 +32,12 @@ bool inFront() {
 // A copy running behind another window must not move or confine the mouse of the window in front.
 BOOL WINAPI hkSetCursorPos(int x, int y) { return inFront() ? g_origSetCursorPos(x, y) : TRUE; }
 BOOL WINAPI hkClipCursor(const RECT* r) { return (!r || inFront()) ? g_origClipCursor(r) : TRUE; }
+// After RenderWare starts, WinMain makes the window borderless (WS_POPUP) when it thinks it is fullscreen or
+// the PC has several video adapters: keep the bordered style while the windowed mode is on.
+LONG WINAPI hkSetWindowLong(HWND h, int idx, LONG v) {
+    if (g_windowedActive && idx == GWL_STYLE && h == static_cast<HWND>(gameWindow())) v = LONG(kWindowStyle);
+    return g_origSetWindowLong(h, idx, v);
+}
 
 int windowedModeIndex() {
     int n = reinterpret_cast<GetNumModesFn>(sa::fnRwGetNumVideoModes)();
@@ -56,7 +65,7 @@ RwVideoMode* __cdecl hkGetModeInfo(RwVideoMode* out, int mode) {
 void resizeWindow() {
     HWND h = static_cast<HWND>(gameWindow());
     if (!h) return;
-    DWORD style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
+    DWORD style = kWindowStyle;
     RECT r{0, 0, g_width, g_height};
     AdjustWindowRect(&r, style, FALSE);
     int w = r.right - r.left, ht = r.bottom - r.top;
@@ -71,7 +80,9 @@ void resizeWindow() {
 int __cdecl hkSetMode(int mode) {
     int ok = reinterpret_cast<SetModeFn>(g_origSetMode)(mode);
     if (!ok) return ok;
+    g_windowedActive = true;
     sa::global<uint8_t>(sa::kWindowed) = 1;
+    sa::global<int32_t>(sa::kPsFullScreen) = 0;
     // The windowed path of psSelectDevice leaves the screen size alone; the camera is created from it next.
     sa::global<int>(sa::kScreenWidth) = g_width;
     sa::global<int>(sa::kScreenHeight) = g_height;
@@ -112,6 +123,9 @@ void install(const lbn::CoopConfig& cfg, bool secondCopy) {
     if (cfg.windowed) {
         if (hookVideo()) LOGI("Janela: modo janela pedido (%dx%d)", g_width, g_height);
         else LOGW("Janela: ganchos de video nao instalados (bytes inesperados); jogo em tela cheia");
+        if (!hooks::patchImport(GetModuleHandleA(nullptr), "user32.dll", "SetWindowLongA",
+                                reinterpret_cast<void*>(&hkSetWindowLong), reinterpret_cast<void**>(&g_origSetWindowLong)))
+            LOGW("Janela: nao consegui manter a borda (SetWindowLongA)");
     }
     if (cfg.windowed || cfg.backgroundRun) {
         void* exe = GetModuleHandleA(nullptr);

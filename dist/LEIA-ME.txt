@@ -1,11 +1,26 @@
 ===========================================================================
- LBN Coop SA - Etapa 2 (versão 0.1.2)
+ LBN Coop SA - Etapa 2 (versão 0.1.3)
  Mod cooperativo ORIGINAL para GTA San Andreas 1.0 US (PC, 32 bits)
 ===========================================================================
 
 *** ABRA O JOGO SEMPRE PELO LbnCoopSA-Iniciar.exe ***
 (na pasta do GTA). Ele confere se existe versão nova do mod, atualiza
 sozinho (com backup) e depois abre o gta_sa.exe. Detalhes na seção 2.1.
+
+NOVIDADES DA v0.1.3 (janela e segundo plano)
+- Modo janela: Janela=1 na seção [Janela] do ini (tamanho em
+  LarguraJanela/AlturaJanela). Testado no GTA SA real: abre em janela, com
+  borda, no tamanho pedido.
+- Segundo plano (SegundoPlano=1, padrão): durante a sessão, trocar de
+  janela (Alt+Tab) não pausa mais o jogo, e o menu ESC não congela o mundo
+  enquanto houver outro jogador conectado. A janela que está atrás não
+  mexe no mouse. Testado só no "jogo falso": confirme no jogo.
+- Duas cópias no mesmo PC (DuasCopias=1): EXPERIMENTAL, ainda NÃO funciona
+  no jogo real (a segunda cópia fecha sozinha). Deixe DuasCopias=0.
+- Esta versão NÃO está no GitHub, então o iniciador não a baixa: os dois
+  instalam o MESMO zip (LbnCoopSA-v0.1.3.zip) à mão. O iniciador também
+  não volta para a 0.1.2 (ele só troca por versões mais novas).
+- v0.1.3 não conecta com v0.1.2 (versão do mod diferente).
 
 NOVIDADES DA v0.1.2 (etapa 2: mundo sincronizado)
 - Arma na mão: o boneco do outro jogador segura a mesma arma que ele.
@@ -160,6 +175,16 @@ regras do host (só RemoveDuplicateCars vale para cada um):
 Se o seu LbnCoopSA.ini não tem a seção [Mundo] (ini antigo), o mod usa
 os valores acima. O modelo novo fica em LbnCoopSA-exemplo.ini.
 
+Seção [Janela] (nova na v0.1.3). Vale para cada um:
+    Janela=0        1 = jogo em janela, com borda. 0 = tela cheia (padrão).
+    LarguraJanela=1280  tamanho da área do jogo dentro da janela.
+    AlturaJanela=720
+    DuasCopias=0    experimental, ainda não funciona: deixe 0.
+    SegundoPlano=1  1 = em sessão, Alt+Tab não pausa e o menu ESC não
+                    congela o mundo (com outro jogador conectado).
+                    0 = pausa normal do jogo.
+Se o seu ini não tem a seção [Janela], o mod usa os valores acima.
+
 ---------------------------------------------------------------------------
 4) RADMIN VPN E FIREWALL
 ---------------------------------------------------------------------------
@@ -226,12 +251,12 @@ seu próprio Nickname no LbnCoopSA.ini.
 Log: LbnCoopSA.log fica na pasta do gta_sa.exe (recriado a cada abertura).
 
 ---------------------------------------------------------------------------
-6) LIMITES CONHECIDOS (v0.1.2)
+6) LIMITES CONHECIDOS (v0.1.3)
 ---------------------------------------------------------------------------
-- No jogo real só foi confirmado (pelo LBN, via Radmin, na v0.1.0):
-  conexão, ping ~18 ms sem perda e criação do boneco remoto. Tudo da
-  v0.1.1 e da v0.1.2 foi testado só no "jogo falso" e em testes
-  automáticos.
+- No jogo real já foi confirmado: conexão pelo Radmin (~18 ms, sem
+  perda), boneco remoto, colisão desligada e apelido repetido no log
+  (v0.1.2), e o modo janela com borda (v0.1.3). O resto da v0.1.2 e o
+  segundo plano da v0.1.3 foram testados só no "jogo falso".
 - Armas: só a arma NA MÃO aparece. Mira, tiros, clarão e projéteis do
   outro jogador ainda NÃO aparecem para você (o dano dele em você chega,
   mas você não vê o tiro sair do boneco dele). Munição não é copiada.

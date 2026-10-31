@@ -338,6 +338,7 @@ static int childMain(int argc, char** argv) {
     *reinterpret_cast<uint8_t*>(0x8D621C) = 1;   // ForegroundApp
     HWND gameWnd = makeGameWindow();
     *reinterpret_cast<HWND*>(0xC8CF88) = gameWnd; // PsGlobal.window
+    *reinterpret_cast<int32_t*>(0xC8CF90) = 1;    // PsGlobal.fullScreen (as left by the game's init)
     if (!gameWnd) std::printf("  (nao consegui criar a janela falsa: testes de foco e de janela pulados)\n");
 
     // Write the ini next to the ASI: host mode, auto start.
@@ -391,8 +392,15 @@ static int childMain(int argc, char** argv) {
         EXPECT(g_vmi.flags == 0);                                          // the rest of psSelectDevice goes the windowed way
         EXPECT(*reinterpret_cast<uint8_t*>(0xC920CC) == 1);                // Windowed
         EXPECT(*reinterpret_cast<int*>(0xC17044) == 800 && *reinterpret_cast<int*>(0xC17048) == 600);
+        EXPECT(*reinterpret_cast<int32_t*>(0xC8CF90) == 0);               // PsGlobal.fullScreen
         if (gameWnd) {
             RECT cr{}; GetClientRect(gameWnd, &cr);
+            EXPECT((GetWindowLongA(gameWnd, GWL_STYLE) & WS_CAPTION) == WS_CAPTION);
+            EXPECT(cr.right - cr.left == 800 && cr.bottom - cr.top == 600);
+            // Next WinMain makes the window borderless (as it does in the real game): the border must stay.
+            SetWindowLongA(gameWnd, GWL_STYLE, LONG(WS_POPUP));
+            SetWindowPos(gameWnd, nullptr, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            GetClientRect(gameWnd, &cr);
             EXPECT((GetWindowLongA(gameWnd, GWL_STYLE) & WS_CAPTION) == WS_CAPTION);
             EXPECT(cr.right - cr.left == 800 && cr.bottom - cr.top == 600);
         }

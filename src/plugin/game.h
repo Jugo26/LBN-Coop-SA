@@ -23,6 +23,7 @@ constexpr uintptr_t kForegroundApp  = 0x8D621C; // bool ForegroundApp: the WinMa
 constexpr uintptr_t kGcurSelVM      = 0x8D6220; // int GcurSelVM: video mode picked by psSelectDevice
 constexpr uintptr_t kWindowed       = 0xC920CC; // bool Windowed (the game skips the intro videos when set)
 constexpr uintptr_t kPsGlobal       = 0xC8CF88; // psGlobalType PsGlobal; +0x0 = HWND window
+constexpr uintptr_t kPsFullScreen   = kPsGlobal + 0x8; // RwBool PsGlobal.fullScreen
 
 // ---------------- Functions ----------------
 constexpr uintptr_t fnCalcScreenCoors   = 0x70CE30; // CSprite::CalcScreenCoors (cdecl)
