@@ -3,6 +3,7 @@
 #include "log.h"
 #include "net_common.h"
 #include <enet/enet.h>
+#include <chrono>
 
 namespace lbn {
 
@@ -197,5 +198,63 @@ bool Client::sendChat(const std::string& text) {
 }
 
 uint32_t Client::pingMs() const { return peer_ ? peer_->roundTripTime : 0; }
+
+// ---------------- AsyncClient ----------------
+
+bool AsyncClient::connect(const std::string& host, uint16_t port, const std::string& nick, uint16_t skin,
+                          uint32_t timeoutMs) {
+    stop();
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (!client_.connect(host, port, nick, skin, timeoutMs)) return false;
+    }
+    run_ = true;
+    thread_ = std::thread([this] {
+        while (run_) {
+            {
+                std::lock_guard<std::mutex> lk(mu_);
+                client_.service(0);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(3));
+        }
+    });
+    return true;
+}
+
+void AsyncClient::stop() {
+    run_ = false;
+    if (thread_.joinable()) thread_.join();
+}
+
+void AsyncClient::disconnect(uint32_t flushMs) {
+    stop();
+    std::lock_guard<std::mutex> lk(mu_);
+    client_.disconnect(flushMs);
+}
+
+bool AsyncClient::pollEvent(ClientEvent& out) {
+    std::lock_guard<std::mutex> lk(mu_);
+    return client_.pollEvent(out);
+}
+bool AsyncClient::sendState(const PlayerState& s) {
+    std::lock_guard<std::mutex> lk(mu_);
+    return client_.sendState(s);
+}
+bool AsyncClient::sendChat(const std::string& text) {
+    std::lock_guard<std::mutex> lk(mu_);
+    return client_.sendChat(text);
+}
+Client::Status AsyncClient::status() {
+    std::lock_guard<std::mutex> lk(mu_);
+    return client_.status();
+}
+uint8_t AsyncClient::selfId() {
+    std::lock_guard<std::mutex> lk(mu_);
+    return client_.selfId();
+}
+uint32_t AsyncClient::pingMs() {
+    std::lock_guard<std::mutex> lk(mu_);
+    return client_.pingMs();
+}
 
 } // namespace lbn

@@ -1,7 +1,10 @@
 // LBN Coop SA network client session (original code). Game-agnostic so it can be unit tested.
 #pragma once
 #include <cstdint>
+#include <atomic>
 #include <deque>
+#include <mutex>
+#include <thread>
 #include <string>
 #include "protocol.h"
 
@@ -77,6 +80,29 @@ private:
     std::deque<ClientEvent> events_;
     bool netRef_ = false;
     bool rejected_ = false;
+};
+
+// Thread-safe wrapper that services the ENet client on a background thread, so the
+// connection keeps alive even when the game loop stops calling us (pause menu, loading).
+class AsyncClient {
+public:
+    AsyncClient() = default;
+    ~AsyncClient() { stop(); }
+    bool connect(const std::string& host, uint16_t port, const std::string& nick, uint16_t skin, uint32_t timeoutMs);
+    void disconnect(uint32_t flushMs = 200);
+    bool pollEvent(ClientEvent& out);
+    bool sendState(const PlayerState& s);
+    bool sendChat(const std::string& text);
+    Client::Status status();
+    bool connected() { return status() == Client::Status::Connected; }
+    uint8_t selfId();
+    uint32_t pingMs();
+private:
+    void stop();
+    std::mutex mu_;
+    Client client_;
+    std::thread thread_;
+    std::atomic<bool> run_{false};
 };
 
 } // namespace lbn

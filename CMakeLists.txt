@@ -53,7 +53,7 @@ target_link_libraries(lbn_common PUBLIC Threads::Threads)
 
 set(LBN_STATIC_FLAGS "")
 if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  set(LBN_STATIC_FLAGS -static)
+  set(LBN_STATIC_FLAGS -static -s)
 endif()
 
 add_executable(lbn_server src/server/main.cpp)
@@ -80,4 +80,9 @@ if(LBN_BUILD_PLUGIN)
   set_target_properties(LbnCoopSA PROPERTIES PREFIX "" SUFFIX ".asi" OUTPUT_NAME "LbnCoopSA")
   target_compile_options(LbnCoopSA PRIVATE -Wall -Wno-unused-parameter -fno-strict-aliasing)
   target_link_options(LbnCoopSA PRIVATE -Wl,--kill-at)
+
+  # Fake-game harness (runs under Wine): loads the ASI into a simulated SA 1.0 US address space.
+  add_executable(fake_game_harness tests/fake_game_harness.cpp)
+  target_link_libraries(fake_game_harness PRIVATE lbn_common ${LBN_STATIC_FLAGS})
+  target_link_options(fake_game_harness PRIVATE -Wl,--image-base,0x30000000 -Wl,--disable-dynamicbase)
 endif()

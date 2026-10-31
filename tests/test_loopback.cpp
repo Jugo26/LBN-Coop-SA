@@ -5,6 +5,8 @@
 #include "../src/common/net_server.h"
 #include <enet/enet.h>
 #include <functional>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 using namespace lbn;
@@ -176,4 +178,31 @@ TEST(loopback_threaded_server_and_connect_failure) {
         while (c.pollEvent(e)) if (e.type == ClientEvent::ConnectFailed) failed = true;
     }
     CHECK(failed);
+}
+
+TEST(loopback_async_client_survives_main_thread_stall) {
+    // The game's main loop stops calling us while paused; the async client must keep the link alive.
+    Server srv; ServerOptions o; o.port = ++g_port; o.timeoutMs = 1500;
+    CHECK(srv.startThreaded(o));
+    AsyncClient a, b;
+    CHECK(a.connect("127.0.0.1", o.port, "A", 106, 3000));
+    CHECK(b.connect("127.0.0.1", o.port, "B", 106, 3000));
+    uint32_t start = nowMs();
+    while ((!a.connected() || !b.connected()) && nowMs() - start < 3000) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    CHECK(a.connected() && b.connected());
+    // "Pause" for 3x the timeout without touching the clients from this thread.
+    std::this_thread::sleep_for(std::chrono::milliseconds(4500));
+    CHECK(a.connected() && b.connected());
+    PlayerState s; s.timeMs = nowMs(); s.pos = {7, 8, 9};
+    CHECK(a.sendState(s));
+    bool got = false;
+    start = nowMs();
+    while (!got && nowMs() - start < 2000) {
+        ClientEvent e;
+        while (b.pollEvent(e)) if (e.type == ClientEvent::State && e.state.pos.z == 9.f) got = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK(got);
+    a.disconnect(); b.disconnect();
+    srv.stopThreaded();
 }
