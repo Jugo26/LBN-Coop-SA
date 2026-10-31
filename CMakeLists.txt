@@ -68,6 +68,9 @@ if(LBN_BUILD_TESTS)
   add_executable(lbn_tests tests/test_main.cpp tests/test_protocol.cpp tests/test_interp.cpp
     tests/test_config.cpp tests/test_loopback.cpp)
   target_link_libraries(lbn_tests PRIVATE lbn_common ${LBN_STATIC_FLAGS})
+  if(NOT WIN32)
+    target_compile_definitions(lbn_tests PRIVATE LBN_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+  endif()
   add_test(NAME lbn_tests COMMAND lbn_tests)
 endif()
 

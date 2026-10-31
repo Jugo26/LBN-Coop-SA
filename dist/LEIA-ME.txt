@@ -1,0 +1,185 @@
+===========================================================================
+ LBN Coop SA - Etapa 1 (versão 0.1.0-etapa1)
+ Mod cooperativo ORIGINAL para GTA San Andreas 1.0 US (PC, 32 bits)
+===========================================================================
+
+!! AVISO HONESTO !!
+Esta etapa foi compilada e testada SEM o jogo. O que foi testado de verdade:
+  - protocolo, interpolação, configuração e a camada de rede (servidor +
+    clientes) em testes automáticos no Linux e na versão Windows rodando
+    sob Wine;
+  - o LbnCoopSA.asi carregado dentro de um "jogo falso" (memória simulada
+    nos endereços do GTA SA 1.0 US): hooks, ini, log, host embutido,
+    comandos de script, criacao do boneco/carro remoto e textos na tela.
+O comportamento DENTRO do GTA SA real ainda NÃO foi testado. Pode haver
+crash, boneco parado/deslizando, texto fora do lugar etc. Teste primeiro
+num save de teste (faca BACKUP dos seus saves) e mande o LbnCoopSA.log
+se algo der errado.
+
+---------------------------------------------------------------------------
+1) REQUISITOS (os dois PCs)
+---------------------------------------------------------------------------
+- GTA San Andreas 1.0 US com gta_sa.exe de 14.383.616 bytes (o mod confere
+  a versão; se for outra, ele se desativa e avisa).
+- Windows 10 ou 11.
+- Os DOIS com exatamente a mesma versão do LBN Coop SA.
+- NÃO use junto com SA-MP/MTA (são outros multiplayers).
+- Radmin VPN instalado e os dois na mesma rede do Radmin.
+
+---------------------------------------------------------------------------
+2) INSTALAÇÃO (fazer nos dois PCs)
+---------------------------------------------------------------------------
+Copie para a pasta onde está o gta_sa.exe:
+    dinput8.dll       (Ultimate ASI Loader, carrega arquivos .asi)
+    LbnCoopSA.asi     (o mod)
+    LbnCoopSA.ini     (configuração)
+
+ATENÇÃO com ASI loader duplicado:
+- Se você JÁ tem um ASI loader (ex.: CLEO 4 instala "vorbisFile.dll" com
+  loader; ou já existe um dinput8.dll de outro mod), NÃO copie o nosso
+  dinput8.dll. Basta o LbnCoopSA.asi + LbnCoopSA.ini na pasta do jogo.
+- Coloque o LbnCoopSA.asi em UM lugar só (pasta do jogo OU pasta scripts\),
+  nunca nos dois. O .ini fica na mesma pasta do .asi.
+
+Para desinstalar: apague LbnCoopSA.asi, LbnCoopSA.ini, LbnCoopSA.log e o
+dinput8.dll (se foi você que copiou).
+
+---------------------------------------------------------------------------
+3) CONFIGURAÇÃO (LbnCoopSA.ini)
+---------------------------------------------------------------------------
+HOST (LBN, Radmin 26.196.166.86):
+    Nickname=LBN
+    Mode=host
+    Port=7810
+
+AMIGO (Radmin 26.166.18.128) - pode usar o arquivo extras\LbnCoopSA-amigo.ini
+renomeado para LbnCoopSA.ini:
+    Nickname=Amigo
+    Mode=join
+    HostIP=26.196.166.86
+    Port=7810
+
+Outras opções:
+    Skin=106        modelo do seu boneco como os outros te veem (ID de ped
+                    do SA, ex.: 105, 106, 107 = Grove). 0 (CJ) ainda não.
+    AutoStart=1     hospeda/conecta sozinho quando o mapa carrega.
+    SendRate=20     pacotes de posicao por segundo.
+    InterpDelayMs=100  suavidade x atraso dos bonecos remotos.
+    TimeoutMs=10000 tempo sem resposta até o jogador "cair".
+
+---------------------------------------------------------------------------
+4) RADMIN VPN E FIREWALL
+---------------------------------------------------------------------------
+- Os dois entram na MESMA rede no Radmin VPN e ficam online (bolinha verde).
+- Teste: no PC do amigo, abra o Prompt de Comando e rode:
+      ping 26.196.166.86
+  Se não responder, o problema é o Radmin/firewall, não o mod.
+- No PC do HOST (LBN), libere a porta UDP 7810 de entrada. Abra o Prompt
+  de Comando COMO ADMINISTRADOR e rode (uma linha só):
+      netsh advfirewall firewall add rule name="LBN Coop SA (UDP 7810)" dir=in action=allow protocol=UDP localport=7810 profile=any
+  Para remover depois:
+      netsh advfirewall firewall delete rule name="LBN Coop SA (UDP 7810)"
+- Se o Windows perguntar se o gta_sa.exe pode usar a rede, marque
+  "Redes privadas" E "Redes públicas" (o adaptador do Radmin costuma ser
+  tratado como rede pública).
+- O amigo normalmente não precisa liberar nada (conexão de saída).
+- Antivírus as vezes bloqueia dinput8.dll/.asi novos; se o mod não
+  carregar (não aparece LbnCoopSA.log), adicione a pasta do jogo nas
+  exceções.
+
+TESTE DE REDE SEM ABRIR O JOGO (opcional, recomendado na 1a vez):
+  No PC do host, dentro de extras\:
+      LbnCoopSA-Server.exe --port 7810
+  No PC do amigo, dentro de extras\ (Prompt de Comando):
+      LbnCoopSA-TesteRede.exe 26.196.166.86 7810 Amigo 15
+  Se aparecer "CONECTADO", a rede está ok. Feche o servidor (Ctrl+C)
+  antes de hospedar pelo jogo (os dois usam a mesma porta).
+  O servidor dedicado também pode ser usado no lugar do host embutido:
+  nesse caso TODOS usam Mode=join apontando para o IP do PC do servidor.
+
+---------------------------------------------------------------------------
+5) COMO JOGAR
+---------------------------------------------------------------------------
+1. HOST abre o jogo, carrega o save e aperta F7 (ou usa AutoStart=1).
+   Aparece "Servidor iniciado na porta UDP 7810".
+2. AMIGO abre o jogo, carrega o save e aperta F7.
+   Aparece "Conectado a 'LBN Coop SA'..." e "Amigo entrou no jogo".
+3. Cada um vê o outro como um boneco com o nome em cima. Ao entrar num
+   carro, o mesmo modelo aparece no jogo do outro, com o boneco no banco
+   certo. Para ir de passageiro no carro do outro, chegue perto e aperte
+   G (entrar como passageiro) no carro dele.
+
+Teclas:
+    F7   iniciar (hospedar ou conectar, conforme o Mode do .ini)
+    F8   mostrar/esconder o menu (estado, jogadores, ping)
+    F9   trocar o modo host/cliente (só com a sessão desligada)
+    F10  sair da sessão
+    T    abrir o chat; Enter envia; Esc cancela
+Comandos no chat: /ping  /jogadores  /sair
+
+Log: LbnCoopSA.log fica na pasta do gta_sa.exe (recriado a cada abertura).
+
+---------------------------------------------------------------------------
+6) LIMITES CONHECIDOS DA ETAPA 1
+---------------------------------------------------------------------------
+- Não testado no jogo real (ver aviso no topo).
+- Cada um continua no SEU próprio mundo/save: trânsito, pedestres, polícia,
+  missões, hora e clima NÃO são sincronizados ainda.
+- Bonecos e carros remotos são invencíveis e não podem ser mirados (dano,
+  armas e tiros chegam na etapa 2).
+- Animação básica: parado/andar/correr/sprint. Pulo, soco, mira, nadar,
+  agachar ainda não aparecem para o outro.
+- Skin 0 (CJ com roupas) não suportada para o boneco remoto; use um ID de
+  ped comum (padrão 106).
+- Se você assumir o volante de um carro que pertence ao outro, cada jogo
+  pode ficar com uma cópia diferente desse carro (corrigido na etapa 2).
+- Trens/bondes não são copiados.
+- Com o jogo pausado (ESC) a conexão continua viva, mas seu boneco fica
+  parado na tela do outro com "(pausado)".
+- Acentos no chat: letras acentuadas viram simples (fonte do GTA);
+  teclas mortas (acento + letra) podem não funcionar; o "ç" funciona.
+- Máximo de 5 jogadores (host + 4).
+
+---------------------------------------------------------------------------
+7) ROTEIRO (próximas etapas)
+---------------------------------------------------------------------------
+ETAPA 2 - Sincronizar o mundo
+- Armas: arma na mão, mira, tiros e efeitos replicados; troca de arma.
+- Dano: vida/colete reais nos bonecos remotos, dano entre jogadores
+  (configurável: amigável ou não), morte e respawn sincronizados.
+- Nível de procurado: estrelas compartilhadas (polícia persegue o grupo);
+  o host decide o nível.
+- Trânsito e pedestres: o host vira "dono" do trânsito perto dos jogadores
+  e replica carros/pedestres de IA importantes; donos por proximidade
+  para dividir a carga; dano/estado de veículos (portas, pneus, explosão).
+- Hora, clima e dinheiro coerentes entre os jogos.
+- Animações completas (pulo, soco, agachar, nadar, motos/bikes, sair do
+  carro), skin do CJ com roupas.
+
+ETAPA 3 - Campanha cooperativa
+- O host roda o script da missão; os clientes espelham os objetivos
+  (textos, marcadores, blips), cutscenes e inimigos criados pela missão.
+- Começo por missões iniciais de Los Santos (ex.: "Big Smoke", "Ryder",
+  "Tagging up Turf", "Cleaning the Hood", "Drive-Thru"), validando uma
+  por uma antes de liberar as próximas.
+- Eventos da missão (spawn de inimigos, carros da missão, checkpoints,
+  falha/sucesso) enviados pelo host; clientes não rodam a lógica da missão
+  para evitar divergência.
+- Salvamento: progresso salvo no save do host.
+
+---------------------------------------------------------------------------
+8) CRÉDITOS E LICENÇAS
+---------------------------------------------------------------------------
+LBN Coop SA - código original. Não contém código de SACoop/CoopAndreas/
+SA:COOP. Componentes de terceiros (licenças na pasta licencas\):
+- ENet (Lee Salzman) - licença MIT - rede UDP.
+- Ultimate ASI Loader (ThirteenAG) - licença MIT - dinput8.dll.
+- Runtime LLVM libc++/libunwind/compiler-rt (Apache 2.0 com exceção LLVM)
+  e runtime mingw-w64, ligados estaticamente pelo compilador.
+- Endereços de memória do GTA SA 1.0 US conferidos com os cabeçalhos do
+  plugin-sdk (DK22Pac e colaboradores, licença zlib) - nenhum código do
+  plugin-sdk é incluído.
+- Assinaturas de comandos de script conferidas com a biblioteca de
+  comandos do Sanny Builder (apenas referência de teste).
+GTA San Andreas é marca da Rockstar Games/Take-Two. Mod sem fins
+lucrativos, não afiliado.
