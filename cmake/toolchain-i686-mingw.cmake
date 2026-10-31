@@ -1,0 +1,17 @@
+# Cross toolchain: llvm-mingw (clang) targeting i686-w64-mingw32 (32-bit Windows).
+# Set LLVM_MINGW to the extracted llvm-mingw directory.
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR i686)
+if(NOT DEFINED ENV{LLVM_MINGW})
+  message(FATAL_ERROR "Defina a variavel de ambiente LLVM_MINGW")
+endif()
+set(_p $ENV{LLVM_MINGW}/bin/i686-w64-mingw32)
+set(CMAKE_C_COMPILER ${_p}-clang)
+set(CMAKE_CXX_COMPILER ${_p}-clang++)
+set(CMAKE_RC_COMPILER ${_p}-windres)
+set(CMAKE_AR $ENV{LLVM_MINGW}/bin/llvm-ar)
+set(CMAKE_RANLIB $ENV{LLVM_MINGW}/bin/llvm-ranlib)
+set(CMAKE_FIND_ROOT_PATH $ENV{LLVM_MINGW}/i686-w64-mingw32)
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

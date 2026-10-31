@@ -1,0 +1,49 @@
+#include "testfw.h"
+#include "../src/common/config.h"
+#include "../src/common/protocol.h"
+
+using namespace lbn;
+
+TEST(ini_parse_basic) {
+    IniFile ini;
+    ini.loadFromString("\xEF\xBB\xBF; comentario\r\n[LbnCoopSA]\r\nNickname = LBN \r\nmode=HOST\r\nHostIP=26.196.166.86\r\nPort=7810 ; porta\r\nSkin=107\r\nAutoStart=sim\r\n[Hotkeys]\r\nMenu=0x77\r\nChat=y\r\n");
+    std::string warn;
+    CoopConfig c = configFromIni(ini, &warn);
+    CHECK(c.nickname == "LBN");
+    CHECK(c.mode == Mode::Host);
+    CHECK(c.hostIp == "26.196.166.86");
+    CHECK(c.port == 7810);
+    CHECK(c.skin == 107);
+    CHECK(c.autoStart);
+    CHECK(c.keyMenu == 0x77);
+    CHECK(c.keyChat == 'Y');
+    CHECK(warn.empty());
+}
+
+TEST(ini_defaults_and_fallbacks) {
+    IniFile ini;
+    ini.loadFromString("[LbnCoopSA]\nPort=99999\nSkin=0\nMode=banana\nSendRate=1000\n");
+    std::string warn;
+    CoopConfig c = configFromIni(ini, &warn);
+    CHECK(c.port == 7810);
+    CHECK(c.skin == 106);
+    CHECK(c.mode == Mode::Join);
+    CHECK(c.sendRateHz == 60);
+    CHECK(!warn.empty());
+}
+
+TEST(default_ini_text_parses) {
+    IniFile ini; ini.loadFromString(defaultIniText());
+    std::string warn;
+    CoopConfig c = configFromIni(ini, &warn);
+    CHECK(c.mode == Mode::Host && c.port == 7810 && c.hostIp == "26.196.166.86" && warn.empty());
+    CHECK(c.keyStart == 0x76 && c.keyDisconnect == 0x79 && c.keyChat == 'T');
+}
+
+TEST(text_folding) {
+    CHECK(foldToAscii("Ol\xC3\xA1, a\xC3\xA7\xC3\xA3o \xC3\x89") == "Ola, acao E");
+    CHECK(latin1ToUtf8("\xE7") == "\xC3\xA7");
+    CHECK(sanitizeChat("  oi~r~ \x01 tudo bem?  ") == "oir  tudo bem?");
+    CHECK(sanitizeNick("  Jo\xC3\xA3o<script>  ") == "Joaoscript");
+    CHECK(sanitizeNick(std::string(60, 'a')).size() == kMaxNickLen);
+}
