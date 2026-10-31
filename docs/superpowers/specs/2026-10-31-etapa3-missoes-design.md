@@ -1,6 +1,6 @@
 # LBN Coop SA, etapa 3: missões da campanha com o host como autoridade
 
-Data: 2026-10-31. Estado: aguardando revisão do usuário. Versão alvo: **v0.1.3, protocolo 4**.
+Data: 2026-10-31. Estado: aprovada pelo usuário. Versão alvo: **v0.1.5, protocolo 4** (antes vêm a v0.1.3, teste num PC, e a v0.1.4, combate e carros).
 
 ## Intenção
 

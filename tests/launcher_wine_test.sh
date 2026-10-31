@@ -6,7 +6,8 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="${LBN_TOOLS:-/workspace/_tools/lbn}"
-WINE="$T/wine-11.20-amd64-wow64/bin/wine"
+# WINE=env runs the Windows binaries directly (Git Bash on Windows).
+WINE="${WINE:-$T/wine-11.20-amd64-wow64/bin/wine}"
 export WINEPREFIX="${WINEPREFIX:-$T/wineprefix}" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
 unset DISPLAY
 W="$ROOT/build-launchertest"; rm -rf "$W"; mkdir -p "$W"; cd "$W"
@@ -50,7 +51,8 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("scripts/LbnCoopSA.asi", b"NAO DEVE SER INSTALADO")
 PY
 (cd srv && sha256sum LbnCoopSA-v0.2.0.zip > LbnCoopSA-v0.2.0.zip.sha256)
-openssl req -x509 -newkey rsa:2048 -nodes -keyout srv/key.pem -out srv/cert.pem -days 2 -subj "/CN=127.0.0.1" > /dev/null 2>&1
+# MSYS2_ARG_CONV_EXCL: Git Bash would turn "/CN=..." into a Windows path for its native openssl.exe.
+MSYS2_ARG_CONV_EXCL='*' openssl req -x509 -newkey rsa:2048 -nodes -keyout srv/key.pem -out srv/cert.pem -days 2 -subj "/CN=127.0.0.1" > /dev/null 2>&1
 python3 "$ROOT/tests/launcher_test_server.py" $PORT srv/cert.pem srv/key.pem srv 2> server.log &
 SRVPID=$!
 trap 'kill $SRVPID 2>/dev/null' EXIT
@@ -72,7 +74,7 @@ API="--api-url=https://127.0.0.1:$PORT/api"
 echo "== A) atualizacao $CUR -> 0.2.0 (servidor local imitando o GitHub) =="
 mkgame A; cp A/LbnCoopSA.asi asi.old; cp A/LbnCoopSA-Iniciar.exe launcher.old; cp A/LbnCoopSA.ini ini.user
 run A "$API/ok" --abc
-NEWASI="$(unzip -p srv/LbnCoopSA-v0.2.0.zip LbnCoopSA.asi | sha256sum | cut -d' ' -f1)"
+NEWASI="$(python3 -c 'import sys, zipfile, hashlib; print(hashlib.sha256(zipfile.ZipFile(sys.argv[1]).read("LbnCoopSA.asi")).hexdigest())' srv/LbnCoopSA-v0.2.0.zip)"
 check '[ "$(tr -d "\r\n" < A/LbnCoopSA.version)" = 0.2.0 ]' "LbnCoopSA.version = 0.2.0"
 check '[ "$(sha256sum < A/LbnCoopSA.asi | cut -d" " -f1)" = "$NEWASI" ]' "LbnCoopSA.asi trocado pelo da v0.2.0"
 check 'cmp -s A/LbnCoopSA_backup/$CUR/LbnCoopSA.asi asi.old' "backup do .asi antigo em LbnCoopSA_backup/$CUR/"
