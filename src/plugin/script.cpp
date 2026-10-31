@@ -67,6 +67,27 @@ int playerCharHandle() {
     return sa::pedFromHandle(h) ? h : -1;
 }
 
+int wantedLevel() {
+    Call c(STORE_WANTED_LEVEL);
+    c.i(0).out(0);
+    c.run();
+    int w = c.local(0);
+    return w < 0 ? 0 : (w > 6 ? 6 : w);
+}
+
+void setWantedLevel(int level, bool onlyRaise) {
+    if (level <= 0) { if (!onlyRaise) Call(CLEAR_WANTED_LEVEL).i(0).run(); return; }
+    Call(onlyRaise ? ALTER_WANTED_LEVEL_NO_DROP : ALTER_WANTED_LEVEL).i(0).i(level > 6 ? 6 : level).run();
+}
+
+bool timeOfDay(int& h, int& m) {
+    Call c(GET_TIME_OF_DAY);
+    c.out(0).out(1);
+    c.run();
+    h = c.local(0); m = c.local(1);
+    return h >= 0 && h < 24 && m >= 0 && m < 60;
+}
+
 bool loadModelNow(int model) {
     Call(REQUEST_MODEL).i(model).run();
     Call(LOAD_ALL_MODELS_NOW).run();

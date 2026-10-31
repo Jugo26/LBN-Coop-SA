@@ -21,6 +21,20 @@ echo "Release mais recente no GitHub: $LATEST"
 curl -sSL -o latest.zip "https://github.com/Jugo26/LBN-Coop-SA/releases/download/$LATEST/LbnCoopSA-$LATEST.zip"
 run() { local d="$1"; shift; (cd "$d" && timeout 120 "$@" ./LbnCoopSA-Iniciar.exe --sem-pausa 2>&1 | tr -d '\r' > ../"$d".out); sleep 1; sed 's/^/      | /' "$d.out"; }
 
+PREV="${PREV_TAG:-v0.1.0}"
+if [ "$PREV" != "$LATEST" ]; then
+  echo "== R0) instalacao da release anterior ($PREV, baixada do GitHub) usando o PROPRIO iniciador dela =="
+  mkdir P && curl -sSL -o prev.zip "https://github.com/Jugo26/LBN-Coop-SA/releases/download/$PREV/LbnCoopSA-$PREV.zip" && (cd P && unzip -q ../prev.zip)
+  cp gta_sa_stub.exe P/gta_sa.exe; sed -i 's/^Nickname=LBN/Nickname=MeuNick/' P/LbnCoopSA.ini; cp P/LbnCoopSA.ini ini.prev
+  cp P/LbnCoopSA-Iniciar.exe launcher.prev
+  run P "$WINE"
+  check '[ "$(tr -d "\r\n" < P/LbnCoopSA.version)" = "${LATEST#v}" ]' "$PREV -> $LATEST pelo iniciador da $PREV"
+  check 'cmp -s P/LbnCoopSA.asi <(unzip -p latest.zip LbnCoopSA.asi)' ".asi igual ao da $LATEST"
+  check 'cmp -s P/LbnCoopSA-Iniciar.exe <(unzip -p latest.zip LbnCoopSA-Iniciar.exe) && cmp -s P/LbnCoopSA_backup/${PREV#v}/LbnCoopSA-Iniciar.exe launcher.prev' "iniciador trocado pelo novo; o antigo no backup"
+  check 'cmp -s P/LbnCoopSA.ini ini.prev' "LbnCoopSA.ini do usuario mantido"
+  check 'grep -q STUB P/gta_stub_ran.txt' "jogo (stub) aberto"
+fi
+
 echo "== R1) instalacao antiga (0.0.9) -> atualiza pela release real =="
 mkdir R && (cd "$ROOT" && git archive ca65bb4 dist) | tar -x -C R --strip-components=1
 printf '0.0.9\n' > R/LbnCoopSA.version

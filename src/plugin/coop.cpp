@@ -56,6 +56,21 @@ struct State {
     uint32_t seq = 0;
     uint32_t firstFrameMs = 0;
     void* lastPlayerPed = nullptr;
+    // ---- stage 2: world sync ----
+    uint8_t authorityId = 0xFF;    // who decides clock/weather/wanted/rules (the host = lowest id)
+    lbn::WorldState world;         // last world state from the authority
+    bool haveWorld = false, worldDirty = false;
+    uint32_t lastWorldSendMs = 0;
+    int appliedWeather = -1;       // weather we forced (-1 = never forced anything)
+    int appliedCarDensity = -1, appliedPedDensity = -1; // percent we applied (-1 = untouched)
+    int lastWorldWanted = -1;
+    int wantedLowTicks = 0;
+    std::map<uint8_t, uint8_t> remoteWanted; // authority: last wanted level each player reported
+    uint32_t lastDedupMs = 0;
+    uint32_t lastHitMsgMs = 0;
+    std::map<uint8_t, uint32_t> hitLineMs; // victim id -> last "you hit X" line
+    bool lastPvpShown = false, pvpKnown = false;
+    uint32_t damageTaken = 0, damageDealt = 0, dupCarsRemoved = 0;
 } *g = nullptr;
 
 uintptr_t g_origProcess = 0, g_origDrawing = 0, g_origShutdown = 0;
@@ -93,12 +108,214 @@ void destroyAllRemotes(bool worldValid) {
     g->remotes.clear();
 }
 
+int ownerOfVehicle(void* veh);
+
+bool isAuthority() { return g->selfId != 0xFF && g->selfId == g->authorityId; }
+
+// Undo what we forced on the local game (weather, densities). Clock and wanted level are left as they are.
+void releaseWorld(bool touchWorld) {
+    if (touchWorld && sa::findPlayerPed()) {
+        if (g->appliedWeather >= 0) { scm::Call(scm::RELEASE_WEATHER).run(); LOGI("Mundo: clima liberado"); }
+        if (g->appliedCarDensity >= 0) scm::Call(scm::SET_CAR_DENSITY_MULTIPLIER).f(1.f).run();
+        if (g->appliedPedDensity >= 0) scm::Call(scm::SET_PED_DENSITY_MULTIPLIER).f(1.f).run();
+    }
+    g->appliedWeather = g->appliedCarDensity = g->appliedPedDensity = -1;
+    g->authorityId = 0xFF;
+    g->haveWorld = g->worldDirty = false;
+    g->lastWorldWanted = -1;
+    g->wantedLowTicks = 0;
+    g->remoteWanted.clear();
+    g->hitLineMs.clear();
+    g->pvpKnown = false;
+    remoteOptions().pvp = false;
+}
+
+void applyDensity(const lbn::WorldState& w) {
+    bool force = (w.flags & lbn::WorldState::ForceDensity) != 0;
+    int car = force ? w.carDensityX100 : (g->appliedCarDensity >= 0 ? 100 : -1);
+    int ped = force ? w.pedDensityX100 : (g->appliedPedDensity >= 0 ? 100 : -1);
+    if (car >= 0 && car != g->appliedCarDensity) {
+        scm::Call(scm::SET_CAR_DENSITY_MULTIPLIER).f(car / 100.f).run();
+        LOGI("Mundo: densidade de transito %d%%", car);
+        g->appliedCarDensity = force ? car : -1;
+    }
+    if (ped >= 0 && ped != g->appliedPedDensity) {
+        scm::Call(scm::SET_PED_DENSITY_MULTIPLIER).f(ped / 100.f).run();
+        LOGI("Mundo: densidade de pedestres %d%%", ped);
+        g->appliedPedDensity = force ? ped : -1;
+    }
+}
+
+void showPvp(bool pvp) {
+    if (g->pvpKnown && g->lastPvpShown == pvp) return;
+    g->pvpKnown = true; g->lastPvpShown = pvp;
+    addLine(pvp ? "PvP LIGADO pelo host: voces podem se ferir." : "PvP desligado pelo host: ninguem fere ninguem.", kColSystem);
+}
+
+// Non-authority: follow the host's world.
+void applyWorldFromHost() {
+    if (!g->haveWorld) return;
+    const lbn::WorldState& w = g->world;
+    bool pvp = (w.flags & lbn::WorldState::PvP) != 0;
+    remoteOptions().pvp = pvp;
+    showPvp(pvp);
+    if (w.flags & lbn::WorldState::SyncClock) {
+        int h, m;
+        if (scm::timeOfDay(h, m)) {
+            int diff = std::abs((h * 60 + m) - (w.hour * 60 + w.minute));
+            diff = std::min(diff, 1440 - diff);
+            if (diff >= 2) {
+                scm::Call(scm::SET_TIME_OF_DAY).i(w.hour).i(w.minute).run();
+                if (diff > 10) LOGI("Mundo: hora ajustada para %02u:%02u (host)", w.hour, w.minute);
+            }
+        }
+    }
+    if ((w.flags & lbn::WorldState::SyncWeather) && w.weather != g->appliedWeather) {
+        scm::Call(scm::FORCE_WEATHER_NOW).i(w.weather).run();
+        LOGI("Mundo: clima %d (host)", int(w.weather));
+        g->appliedWeather = w.weather;
+    } else if (!(w.flags & lbn::WorldState::SyncWeather) && g->appliedWeather >= 0) {
+        scm::Call(scm::RELEASE_WEATHER).run();
+        g->appliedWeather = -1;
+    }
+    if (w.flags & lbn::WorldState::SyncWanted) {
+        int local = scm::wantedLevel();
+        if (int(w.wanted) != g->lastWorldWanted) {
+            // The group level changed on the host: take it exactly (also lets the host clear everybody).
+            if (local != w.wanted) {
+                scm::setWantedLevel(w.wanted, false);
+                LOGI("Procurado: %d -> %d estrelas (host)", local, int(w.wanted));
+            }
+            g->lastWorldWanted = w.wanted;
+            g->wantedLowTicks = 0;
+        } else if (local < w.wanted) {
+            // We lost stars on our own (e.g. reload) but the group is still wanted: catch up after ~3 s.
+            if (++g->wantedLowTicks >= 3) { scm::setWantedLevel(w.wanted, true); g->wantedLowTicks = 0; }
+        } else g->wantedLowTicks = 0;
+    }
+    applyDensity(w);
+}
+
+// Authority (host): publish our world once per second.
+void publishWorld(uint32_t now) {
+    if (now - g->lastWorldSendMs < 1000) return;
+    g->lastWorldSendMs = now;
+    lbn::WorldState w;
+    int h = 12, m = 0;
+    scm::timeOfDay(h, m);
+    w.hour = uint8_t(std::clamp(h, 0, 23)); w.minute = uint8_t(std::clamp(m, 0, 59));
+    int wt = sa::global<int16_t>(sa::kWeatherNew);
+    w.weather = int16_t((wt >= 0 && wt < 46) ? wt : 0);
+    w.wanted = uint8_t(scm::wantedLevel());
+    w.flags = 0;
+    if (g->cfg.pvp) w.flags |= lbn::WorldState::PvP;
+    if (g->cfg.syncClock) w.flags |= lbn::WorldState::SyncClock;
+    if (g->cfg.syncWeather) w.flags |= lbn::WorldState::SyncWeather;
+    if (g->cfg.syncWanted) w.flags |= lbn::WorldState::SyncWanted;
+    if (g->cfg.trafficDensityPct != 100 || g->cfg.pedDensityPct != 100) w.flags |= lbn::WorldState::ForceDensity;
+    w.carDensityX100 = uint8_t(g->cfg.trafficDensityPct);
+    w.pedDensityX100 = uint8_t(g->cfg.pedDensityPct);
+    g->client.sendWorld(w);
+    remoteOptions().pvp = g->cfg.pvp;
+    showPvp(g->cfg.pvp);
+    applyDensity(w);
+}
+
+// Authority: a friend's wanted level went up (they committed a crime) -> the group level goes up.
+void mergeRemoteWanted(uint8_t id, uint8_t level) {
+    uint8_t& prev = g->remoteWanted[id];
+    if (g->cfg.syncWanted && level > prev && sa::findPlayerPed()) {
+        int local = scm::wantedLevel();
+        if (level > local) {
+            scm::setWantedLevel(level, true);
+            LOGI("Procurado: %s chegou a %u estrelas -> grupo com %u", g->names[id].c_str(), unsigned(level), unsigned(level));
+        }
+    }
+    prev = level;
+}
+
+void onAvatarHit(uint8_t victim, float amount, uint8_t weapon) {
+    lbn::DamageMsg d;
+    d.peer = victim;
+    d.amountX10 = uint16_t(std::clamp(amount * 10.f, 1.f, 2000.f));
+    d.weapon = weapon;
+    g->client.sendDamage(d);
+    g->damageDealt++;
+    uint32_t now = lbn::nowMs();
+    uint32_t& last = g->hitLineMs[victim];
+    if (!last || now - last > 3000) {
+        last = now;
+        addLine("Voce acertou " + g->names[victim] + " (" + lbn::weaponNamePtBr(weapon) + ")", kColSystem);
+    }
+}
+
+void applyIncomingDamage(uint8_t from, const lbn::DamageMsg& d) {
+    void* ped = sa::findPlayerPed();
+    if (!ped || !remoteOptions().pvp) return;
+    float amount = d.amountX10 / 10.f;
+    float& armour = sa::at<float>(ped, sa::off::pedArmour);
+    float hp = sa::at<float>(ped, sa::off::pedHealth);
+    if (hp <= 0.f) return;
+    float a = std::min(armour, amount);
+    if (a > 0.f) { armour -= a; amount -= a; }
+    if (amount > 0.f) {
+        int newHp = int(std::max(0.f, hp - amount));
+        int h = scm::playerCharHandle();
+        if (h >= 0) scm::Call(scm::SET_CHAR_HEALTH).i(h).i(newHp).run();
+    }
+    g->damageTaken++;
+    LOGI("Dano recebido de %s: %.1f (%s)", g->names[from].c_str(), d.amountX10 / 10.0, lbn::weaponNamePtBr(d.weapon));
+    uint32_t now = lbn::nowMs();
+    if (now - g->lastHitMsgMs > 2000) {
+        g->lastHitMsgMs = now;
+        addLine(g->names[from] + " te acertou (" + lbn::weaponNamePtBr(d.weapon) + ")", kColError);
+    }
+}
+
+// "Basic traffic sync": when a friend drives a parked/traffic car that also exists in OUR world (parked
+// car generators are the same in every game), our empty copy would sit where theirs was -> remove it.
+struct DedupCtx { void* keep; int16_t model; Vec3 pos; void* local; int removed; };
+void dedupVisit(void* veh, void* ctxp) {
+    auto* c = static_cast<DedupCtx*>(ctxp);
+    if (veh == c->keep || veh == c->local || sa::modelOf(veh) != c->model) return;
+    uint8_t by = sa::at<uint8_t>(veh, sa::off::vehCreatedBy);
+    if (by != 1 && by != 3) return; // only random traffic / parked cars, never mission or our own copies
+    if (sa::at<void*>(veh, sa::off::vehDriver)) return;
+    void** pass = &sa::at<void*>(veh, sa::off::vehPassengers);
+    for (int i = 0; i < 8; ++i) if (pass[i]) return;
+    if (ownerOfVehicle(veh) >= 0) return;
+    Vec3 p;
+    if (!sa::entityPos(veh, p) || (p - c->pos).length() > 5.f) return;
+    int h = sa::vehicleRef(veh);
+    if (h < 0) return;
+    scm::deleteCar(h);
+    c->removed++;
+}
+
+void removeDuplicateCars(uint32_t now) {
+    if (!g->cfg.removeDuplicateCars || now - g->lastDedupMs < 2000) return;
+    g->lastDedupMs = now;
+    void* lv = localVehicle();
+    for (auto& kv : g->remotes) {
+        void* v = kv.second->vehicle();
+        if (!v) continue;
+        DedupCtx c{v, sa::modelOf(v), {}, lv, 0};
+        if (!sa::entityPos(v, c.pos)) continue;
+        sa::forEachVehicle(&dedupVisit, &c);
+        if (c.removed) {
+            g->dupCarsRemoved += c.removed;
+            LOGI("Transito: removida %d copia(s) duplicada(s) do carro de %s", c.removed, kv.second->nick().c_str());
+        }
+    }
+}
+
 // touchWorld=false when the game is shutting down: then we must not call into the game anymore.
 void stopSession(const std::string& why, uint32_t color, bool touchWorld = true) {
     if (g->session == Session::Off && !g->serverRunning) return;
     g->client.disconnect(200);
     if (g->serverRunning) { g->server.stopThreaded(); g->serverRunning = false; }
     destroyAllRemotes(touchWorld && sa::findPlayerPed() != nullptr);
+    releaseWorld(touchWorld);
     g->names.clear();
     g->session = Session::Off;
     g->selfId = 0xFF;
@@ -161,6 +378,9 @@ bool captureLocal(PlayerState& s) {
     float hp = sa::at<float>(ped, sa::off::pedHealth), ar = sa::at<float>(ped, sa::off::pedArmour);
     s.health = uint8_t(std::clamp(hp, 0.f, 255.f));
     s.armour = uint8_t(std::clamp(ar, 0.f, 255.f));
+    int wep = sa::pedCurrentWeapon(ped);
+    s.weapon = uint8_t(lbn::isValidWeapon(uint8_t(wep)) ? wep : 0);
+    s.wanted = uint8_t(scm::wantedLevel());
     s.flags = 0;
     void* veh = sa::pedVehicle(ped);
     if (veh) {
@@ -325,13 +545,37 @@ void handleNetwork() {
                 g->remotes.erase(it);
             }
             g->names.erase(e.id);
+            g->remoteWanted.erase(e.id);
             break;
         }
         case lbn::ClientEvent::State: {
             auto it = g->remotes.find(e.id);
             if (it != g->remotes.end()) it->second->pushState(e.state, e.recvMs);
+            if (isAuthority()) mergeRemoteWanted(e.id, e.state.wanted);
             break;
         }
+        case lbn::ClientEvent::Session: {
+            bool was = isAuthority();
+            g->authorityId = e.id;
+            if (isAuthority() && !was) {
+                addLine("Voce e o host do mundo: hora, clima, procurado e PvP seguem o seu jogo.", kColOk);
+                g->lastWorldSendMs = 0;
+                // We now decide the world: drop anything we forced while following someone else.
+                if (g->appliedWeather >= 0 && sa::findPlayerPed()) scm::Call(scm::RELEASE_WEATHER).run();
+                g->appliedWeather = -1;
+                g->haveWorld = false;
+            }
+            break;
+        }
+        case lbn::ClientEvent::World:
+            if (isAuthority()) break;
+            g->world = e.world;
+            g->haveWorld = true;
+            g->worldDirty = true;
+            break;
+        case lbn::ClientEvent::Damage:
+            applyIncomingDamage(e.id, e.damage);
+            break;
         case lbn::ClientEvent::Chat:
             if (e.id == lbn::kSystemSender) addLine(e.text, kColSystem);
             else {
@@ -395,6 +639,10 @@ void onProcess() {
         g->lastSendMs = now;
     }
 
+    if (isAuthority()) publishWorld(now);
+    else if (g->worldDirty) { g->worldDirty = false; applyWorldFromHost(); }
+    removeDuplicateCars(now);
+
     WorldLookup w;
     w.selfId = g->selfId;
     w.localPed = ped;
@@ -418,6 +666,16 @@ void drawNametags(uint32_t now) {
         if (now - kv.second->lastStateMs() > 2500) label += " (pausado)";
         float scale = std::clamp(1.1f - dist / (g->cfg.nametagDistance * 1.5f), 0.55f, 1.0f);
         overlay::text(sx, sy - overlay::lineHeight(scale), label.c_str(), overlay::rgba(255, 255, 255, 230), scale, overlay::Center);
+        // v0.1.2: health/armour of the real player (from their own game), under the name.
+        std::string hp;
+        uint32_t col = overlay::rgba(120, 255, 140, 220);
+        if (kv.second->dead()) { hp = "(morto)"; col = overlay::rgba(255, 110, 110, 230); }
+        else {
+            hp = "Vida " + std::to_string(int(kv.second->health()));
+            if (kv.second->armour() > 0) hp += "  Colete " + std::to_string(kv.second->armour());
+            if (kv.second->health() < 30.f) col = overlay::rgba(255, 170, 90, 230);
+        }
+        overlay::text(sx, sy, hp.c_str(), col, scale * 0.8f, overlay::Center);
     }
 }
 
@@ -458,10 +716,19 @@ void drawMenu(uint32_t now) {
     else line("Modo: CLIENTE -> " + g->cfg.hostIp + ":" + std::to_string(g->cfg.port), kColChat);
     line("Apelido: " + (g->selfNick.empty() ? g->cfg.nickname : g->selfNick) + "  skin " + std::to_string(g->cfg.skin), kColChat);
     if (g->session == Session::Online) {
-        line("Voce: " + std::to_string(g->selfPing) + " ms", kColChat);
+        line("Voce: " + std::to_string(g->selfPing) + " ms" + (isAuthority() ? "  (voce e o host do mundo)" : ""), kColChat);
+        line(std::string("Mundo: PvP ") + (remoteOptions().pvp ? "ligado" : "desligado") +
+             (g->haveWorld || isAuthority() ? "" : "  (aguardando o host)"), kColChat);
         for (auto& kv : g->remotes) {
             std::string s = "  " + kv.second->nick() + "  " + std::to_string(kv.second->pingMs()) + " ms";
             if (!kv.second->hasState()) s += " (carregando)";
+            else if (kv.second->dead()) s += "  (morto)";
+            else {
+                s += "  vida " + std::to_string(int(kv.second->health()));
+                if (kv.second->armour()) s += " colete " + std::to_string(kv.second->armour());
+                if (kv.second->weapon()) s += "  " + std::string(lbn::weaponNamePtBr(kv.second->weapon()));
+                if (kv.second->wanted()) s += "  " + std::to_string(kv.second->wanted()) + " estrela(s)";
+            }
             line(s, kColChat);
         }
     }
@@ -546,11 +813,15 @@ bool init(HMODULE self) {
     if (!warn.empty()) LOGW("Config: %s", warn.c_str());
     g->interpCfg.delayMs = uint32_t(g->cfg.interpDelayMs);
     remoteOptions().pedCollision = g->cfg.remotePedCollision;
+    remoteOptions().onHit = &onAvatarHit;
     LOGI("Config: apelido=%s modo=%s hostIP=%s porta=%u skin=%u autoStart=%d",
          g->cfg.nickname.c_str(), lbn::modeName(g->cfg.mode), g->cfg.hostIp.c_str(), unsigned(g->cfg.port),
          unsigned(g->cfg.skin), int(g->cfg.autoStart));
     LOGI("Config: SendRate=%d InterpDelayMs=%d RemotePedCollision=%d", g->cfg.sendRateHz, g->cfg.interpDelayMs,
          int(g->cfg.remotePedCollision));
+    LOGI("Config [Mundo] (vale o do host): PvP=%d SyncClock=%d SyncWeather=%d SyncWanted=%d TrafficDensity=%d PedDensity=%d RemoveDuplicateCars=%d",
+         int(g->cfg.pvp), int(g->cfg.syncClock), int(g->cfg.syncWeather), int(g->cfg.syncWanted),
+         g->cfg.trafficDensityPct, g->cfg.pedDensityPct, int(g->cfg.removeDuplicateCars));
 
     bool ok = hooks::redirectCall(sa::hookGameProcess, reinterpret_cast<void*>(&hkProcess), &g_origProcess) &&
               hooks::redirectCall(sa::hookDrawing, reinterpret_cast<void*>(&hkDrawing), &g_origDrawing);

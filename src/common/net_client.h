@@ -24,6 +24,9 @@ struct ClientEvent {
         State,          // id, state, recvMs
         Chat,           // id (0xFF = system), text
         Pings,          // pings
+        Damage,         // id = attacker, damage
+        World,          // world (from the authority), id = authority id
+        Session,        // id = authority id (the "host" deciding world state)
     };
     ClientEvent() = default;
     explicit ClientEvent(Type t) : type(t) {}
@@ -36,6 +39,8 @@ struct ClientEvent {
     PlayerState state;
     uint32_t recvMs = 0;
     PingsMsg pings;
+    DamageMsg damage;
+    WorldState world;
 };
 
 class Client {
@@ -56,6 +61,8 @@ public:
 
     bool sendState(const PlayerState& s);
     bool sendChat(const std::string& text);
+    bool sendDamage(const DamageMsg& d);
+    bool sendWorld(const WorldState& w);
 
     Status status() const { return status_; }
     bool connected() const { return status_ == Status::Connected; }
@@ -93,6 +100,8 @@ public:
     bool pollEvent(ClientEvent& out);
     bool sendState(const PlayerState& s);
     bool sendChat(const std::string& text);
+    bool sendDamage(const DamageMsg& d);
+    bool sendWorld(const WorldState& w);
     Client::Status status();
     bool connected() { return status() == Client::Status::Connected; }
     uint8_t selfId();

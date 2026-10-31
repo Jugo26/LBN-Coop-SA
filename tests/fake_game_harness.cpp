@@ -13,6 +13,7 @@
 #include "../src/common/net_common.h"
 #include "../src/common/mathutil.h"
 #include <windows.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -39,6 +40,13 @@ static std::vector<std::string> g_anims;
 static int g_playerHandle = -1;
 static int g_areaBlockedReplies = 0;   // IS_AREA_OCCUPIED answers "occupied" this many times
 static float g_groundZ = 12.3f;
+// stage 2 fake game state
+static int g_wanted = 0, g_hour = 14, g_minute = 30, g_weatherForced = -1, g_weatherReleased = 0;
+static std::set<int> g_requestedModels;
+static int g_lastGiveWeapon = -1, g_removeAllWeapons = 0, g_explodeCalls = 0;
+static int g_lastProofs[5] = {-1, -1, -1, -1, -1};
+static float g_carDensity = -1.f, g_pedDensity = -1.f;
+static uint8_t* g_poolObjects = nullptr; static uint8_t g_poolFlags[3] = {0x80, 0x80, 0x80};
 
 template <class T> static T& F(void* base, uint32_t o) { return *reinterpret_cast<T*>(static_cast<uint8_t*>(base) + o); }
 
@@ -53,6 +61,21 @@ static uint8_t* newEntity(bool vehicle, uint16_t model, float x, float y, float 
     if (vehicle) F<uint8_t>(m, 0x488) = 3; // max passengers
     int h = g_nextHandle; g_nextHandle += 0x100;
     g_entities[h] = {m, mat, true, vehicle};
+    if (handleOut) *handleOut = h;
+    return m;
+}
+
+// Puts a vehicle into slot `slot` of the fake CPools::ms_pVehiclePool.
+static uint8_t* newPoolVehicle(int slot, uint16_t model, uint8_t createdBy, float x, float y, float z, int* handleOut) {
+    uint8_t* m = g_poolObjects + slot * 0xA18;
+    uint8_t* mat = static_cast<uint8_t*>(std::calloc(1, 0x48));
+    F<float>(mat, 0x00) = 1; F<float>(mat, 0x14) = 1; F<float>(mat, 0x28) = 1;
+    F<float>(mat, 0x30) = x; F<float>(mat, 0x34) = y; F<float>(mat, 0x38) = z;
+    F<void*>(m, 0x14) = mat; F<int16_t>(m, 0x22) = int16_t(model); F<uint8_t>(m, 0x4A4) = createdBy;
+    F<uint8_t>(m, 0x488) = 3; F<float>(m, 0x4C0) = 1000.f;
+    int h = g_nextHandle; g_nextHandle += 0x100;
+    g_entities[h] = {m, mat, true, true};
+    g_poolFlags[slot] = 0;
     if (handleOut) *handleOut = h;
     return m;
 }
@@ -97,6 +120,10 @@ static const std::map<uint16_t, int> kParamCount = {
     {0x036A, 2}, {0x038B, 0}, {0x039E, 2}, {0x0430, 3}, {0x0568, 2}, {0x0605, 9}, {0x0687, 1},
     {0x087E, 2}, {0x0918, 2},
     {0x01F5, 2}, {0x0619, 2}, {0x02CE, 4}, {0x0339, 11},
+    // v0.1.2 (stage 2), counts checked against Sanny Builder's sa.json
+    {0x01B2, 3}, {0x01B9, 2}, {0x048F, 1}, {0x0223, 2}, {0x020B, 1}, {0x010D, 2}, {0x010E, 2},
+    {0x0110, 1}, {0x01C0, 2}, {0x00BF, 2}, {0x00C0, 2}, {0x01B6, 1}, {0x01B7, 0}, {0x01EB, 1},
+    {0x03DE, 1}, {0x02A9, 2}, {0x0446, 2},
 };
 
 struct Param { uint8_t type; int32_t i; float f; std::string s; };
@@ -133,7 +160,30 @@ static char __thiscall fProcessOne(void* sc) {
     switch (op) {
     case 0x009A: { int h; newEntity(false, uint16_t(ps[1].i), fl(2), fl(3), fl(4), &h); setLocal(ps[5], h); break; }
     case 0x00A5: { int h; newEntity(true, uint16_t(ps[0].i), fl(1), fl(2), fl(3), &h); setLocal(ps[4], h); break; }
-    case 0x009B: case 0x00A6: { auto it = g_entities.find(ps[0].i); if (it != g_entities.end()) it->second.alive = false; break; }
+    case 0x009B: case 0x00A6: {
+        auto it = g_entities.find(ps[0].i);
+        if (it != g_entities.end()) {
+            it->second.alive = false;
+            for (int s = 0; s < 3; ++s) if (g_poolObjects && it->second.mem == g_poolObjects + s * 0xA18) g_poolFlags[s] = 0x80;
+        }
+        break;
+    }
+    case 0x0223: { void* ped = fGetPed(ps[0].i); if (ped) F<float>(ped, 0x540) = float(ps[1].i); else g_errors.push_back("SET_CHAR_HEALTH handle invalido"); break; }
+    case 0x01C0: setLocal(ps[1], g_wanted); break;
+    case 0x010D: g_wanted = ps[1].i; break;
+    case 0x010E: g_wanted = std::max(g_wanted, ps[1].i); break;
+    case 0x0110: g_wanted = 0; break;
+    case 0x00BF: setLocal(ps[0], g_hour); setLocal(ps[1], g_minute); break;
+    case 0x00C0: g_hour = ps[0].i; g_minute = ps[1].i; break;
+    case 0x01B6: g_weatherForced = ps[0].i; break;
+    case 0x01B7: g_weatherReleased++; break;
+    case 0x01EB: g_carDensity = fl(0); break;
+    case 0x03DE: g_pedDensity = fl(0); break;
+    case 0x01B2: { g_lastGiveWeapon = ps[1].i; void* ped = fGetPed(ps[0].i); if (ped) F<int>(ped, 0x5A0) = ps[1].i; break; }
+    case 0x048F: g_removeAllWeapons++; break;
+    case 0x020B: g_explodeCalls++; break;
+    case 0x0247: g_requestedModels.insert(ps[0].i); break;
+    case 0x02AB: for (int k = 0; k < 5; ++k) g_lastProofs[k] = ps[1 + k].i; break;
     case 0x0248: F<uint8_t>(sc, 0xC5) = 1; break;
     case 0x036A: case 0x0430: {
         void* ped = fGetPed(ps[0].i); void* car = fGetVehicle(ps[1].i);
@@ -219,6 +269,14 @@ static int childMain(int argc, char** argv) {
     for (uintptr_t a : fontFns) *reinterpret_cast<uint8_t*>(a) = 0xC3; // cdecl: plain RET is fine
     *reinterpret_cast<int*>(0xC17044) = 1920;
     *reinterpret_cast<int*>(0xC17048) = 1080;
+    *reinterpret_cast<int16_t*>(0xC8131C) = 8; // CWeather::NewWeatherType = rainy
+    // Fake CPools::ms_pVehiclePool with 3 slots (filled in step [4c]).
+    g_poolObjects = static_cast<uint8_t*>(std::calloc(3, 0xA18));
+    {
+        static uint8_t pool[16];
+        F<uint8_t*>(pool, 0) = g_poolObjects; F<uint8_t*>(pool, 4) = g_poolFlags; F<int>(pool, 8) = 3; F<int>(pool, 12) = 0;
+        *reinterpret_cast<uint8_t**>(0xB74494) = pool;
+    }
 
     // Write the ini next to the ASI: host mode, auto start.
     std::string asi = argv[1];
@@ -276,10 +334,12 @@ static int childMain(int argc, char** argv) {
 
     // Friend: walk for 1.5 s, then drive a Sultan (560) for 1.5 s; also chat.
     uint32_t seq = 0;
+    uint8_t fWeapon = 24, fWanted = 0; float fCarHealth = 600.f;
     auto sendFriend = [&](bool inCar, float t) {
         PlayerState s; s.seq = ++seq; s.timeMs = nowMs();
         s.pos = {2500.f + 3.f * t, -1660.f, 13.4f}; s.vel = {3.f, 0, 0}; s.heading = -kPi / 2;
-        s.anim = MoveAnim::Walk; s.health = 100;
+        s.anim = MoveAnim::Walk; s.health = 100; s.armour = 40; s.weapon = fWeapon; s.wanted = fWanted;
+        s.veh.health = fCarHealth;
         if (inCar) {
             s.flags = PlayerState::InVehicle; s.seat = 0;
             s.veh.key = 4242; s.veh.model = 560; s.veh.pos = s.pos; s.veh.vel = s.vel; s.veh.color1 = 1; s.veh.color2 = 3;
@@ -304,15 +364,29 @@ static int childMain(int argc, char** argv) {
         std::printf("  avatar x=%.2f (esperado ~%.2f)\n", ax, expected);
         EXPECT(std::fabs(ax - expected) < 1.0f);
         EXPECT(F<int16_t>(avatar, 0x22) == 106);
-        // v0.1.1: the avatar must not collide with the local player.
+        // v0.1.1: the avatar must not collide with the local player. v0.1.2 (PvP on, host default): it keeps
+        // collision only while it is away (> 1.6 m) from the local player, so bullets can hit it.
         EXPECT(g_opCount[0x0619] >= 1);
-        EXPECT((F<uint32_t>(avatar, 0x1C) & 1u) == 0);       // CEntity::bUsesCollision off
+        EXPECT((F<uint32_t>(avatar, 0x1C) & 1u) == 1u);      // far away + PvP: collision on (shootable)
         EXPECT((F<uint32_t>(avatar, 0x46C) & 1u) == 1u);     // kept "standing" (no fall anim)
         EXPECT((F<uint32_t>(player, 0x1C) & 1u) == 1u);      // local player untouched
+        // The local player walks into the avatar: its collision must go off at once.
+        uint8_t* pm0 = F<uint8_t*>(player, 0x14); uint8_t* am0 = F<uint8_t*>(avatar, 0x14);
+        uint32_t tc = nowMs();
+        while (nowMs() - tc < 200) {
+            if (nowMs() - lastSend >= 33) { lastSend = nowMs(); sendFriend(false, 1.5f); }
+            F<float>(pm0, 0x30) = F<float>(am0, 0x30) + 0.5f; F<float>(pm0, 0x34) = F<float>(am0, 0x34);
+            frame();
+        }
+        EXPECT((F<uint32_t>(avatar, 0x1C) & 1u) == 0);       // CEntity::bUsesCollision off while close
         // The game re-enables collision e.g. after leaving a car: the plugin must turn it off again.
         F<uint32_t>(avatar, 0x1C) |= 1u;
-        uint32_t tc = nowMs();
-        while (nowMs() - tc < 200) { if (nowMs() - lastSend >= 33) { lastSend = nowMs(); sendFriend(false, 1.5f); } frame(); }
+        tc = nowMs();
+        while (nowMs() - tc < 200) {
+            if (nowMs() - lastSend >= 33) { lastSend = nowMs(); sendFriend(false, 1.5f); }
+            F<float>(pm0, 0x30) = F<float>(am0, 0x30) + 0.5f; F<float>(pm0, 0x34) = F<float>(am0, 0x34);
+            frame();
+        }
         EXPECT((F<uint32_t>(avatar, 0x1C) & 1u) == 0);
     }
 
@@ -349,13 +423,93 @@ static int childMain(int argc, char** argv) {
         frame();
         F<float>(pm, 0x30) = 2495.f; F<float>(pm, 0x34) = -1665.f; F<float>(pm, 0x38) = 13.3f; // back for step [5]
     }
+
+    std::printf("[4c] Etapa 2: arma, procurado, hora/clima, PvP...\n");
+    uint8_t hostId = 0xFF;
+    auto pumpFriend = [&](uint32_t ms) {
+        uint32_t t = nowMs();
+        while (nowMs() - t < ms) { if (nowMs() - lastSend >= 33) { lastSend = nowMs(); sendFriend(false, 1.5f); } frame(); }
+    };
+    {
+        pumpFriend(300);
+        for (auto& e : got) if (e.type == ClientEvent::Session) hostId = e.id;
+        EXPECT(hostId == 0);                                  // the ASI's own client is the world authority
+        // Weapon in hand: Desert Eagle (24) -> model 348 loaded, given and selected.
+        EXPECT(g_lastGiveWeapon == 24);
+        EXPECT(g_requestedModels.count(348) == 1);
+        EXPECT(g_opCount[0x01B9] >= 1);
+        int removes = g_removeAllWeapons;
+        fWeapon = 0; pumpFriend(200);
+        EXPECT(g_removeAllWeapons == removes + 1);            // fists: weapons taken away
+        fWeapon = 31; pumpFriend(200);
+        EXPECT(g_lastGiveWeapon == 31 && g_requestedModels.count(356) == 1);
+        fWeapon = 20; pumpFriend(200);                         // invalid id: server relays 0 (fists)
+        EXPECT(g_lastGiveWeapon == 31 && g_removeAllWeapons == removes + 3); // +1 before giving 31, +1 for fists
+        // PvP proofs on the avatar (bullet 0, fire 1, explosion 0, collision 0, melee 0).
+        EXPECT(g_lastProofs[0] == 0 && g_lastProofs[1] == 1 && g_lastProofs[2] == 0 && g_lastProofs[4] == 0);
+        // Wanted level: the friend gets 3 stars -> the host (authority) is raised to 3.
+        fWanted = 3; pumpFriend(300);
+        EXPECT(g_wanted == 3);
+        // World broadcast to the friend once per second.
+        pumpFriend(1200);
+        lbn::WorldState last; int worlds = 0;
+        for (auto& e : got) if (e.type == ClientEvent::World) { last = e.world; worlds++; }
+        std::printf("  mundos=%d hora=%02u:%02u clima=%d procurado=%u flags=%02X\n", worlds, last.hour, last.minute, last.weather, last.wanted, last.flags);
+        EXPECT(worlds >= 1);
+        EXPECT(last.hour == 14 && last.minute == 30 && last.weather == 8 && last.wanted == 3);
+        EXPECT((last.flags & WorldState::PvP) && (last.flags & WorldState::SyncClock) && !(last.flags & WorldState::ForceDensity));
+        EXPECT(g_carDensity < 0.f && g_pedDensity < 0.f);     // density 100% = never touched
+        // The local player shoots the avatar (health 1000 -> 950 by the player with a pistol).
+        if (avatar) {
+            F<float>(avatar, 0x540) = 950.f; F<void*>(avatar, 0x764) = player; F<uint32_t>(avatar, 0x760) = 22;
+            pumpFriend(300);
+            bool hit = false;
+            for (auto& e : got) if (e.type == ClientEvent::Damage && e.id == hostId && e.damage.amountX10 == 500 && e.damage.weapon == 22) hit = true;
+            EXPECT(hit);
+            EXPECT(std::fabs(F<float>(avatar, 0x540) - 1000.f) < 0.01f);  // copy back to full health
+            // Damage not caused by the local player is not reported.
+            size_t dmg = 0; for (auto& e : got) if (e.type == ClientEvent::Damage) dmg++;
+            F<float>(avatar, 0x540) = 900.f; F<void*>(avatar, 0x764) = nullptr;
+            pumpFriend(200);
+            size_t dmg2 = 0; for (auto& e : got) if (e.type == ClientEvent::Damage) dmg2++;
+            EXPECT(dmg2 == dmg);
+        }
+        // The friend shoots the host for 30 HP: 20 armour absorbs first, health 100 -> 90.
+        F<float>(player, 0x548) = 20.f;
+        lbn::DamageMsg d; d.peer = hostId; d.amountX10 = 300; d.weapon = 24;
+        EXPECT(friendC.sendDamage(d));
+        pumpFriend(300);
+        std::printf("  host: vida=%.1f colete=%.1f\n", F<float>(player, 0x540), F<float>(player, 0x548));
+        EXPECT(std::fabs(F<float>(player, 0x548)) < 0.01f);
+        EXPECT(std::fabs(F<float>(player, 0x540) - 90.f) < 0.01f);
+        F<float>(player, 0x540) = 100.f;
+        fWanted = 0;
+    }
+
+    std::printf("[4d] Carro do amigo: vida, explosao e remocao de duplicata do transito...\n");
+    int parkedH = -1, missionH = -1, otherH = -1;
+    newPoolVehicle(0, 560, 3, 2505.f, -1660.f, 13.4f, &parkedH);   // parked Sultan where the friend's car is
+    newPoolVehicle(1, 560, 2, 2505.f, -1660.f, 13.4f, &missionH);  // mission car: never touched
+    newPoolVehicle(2, 400, 3, 2505.f, -1660.f, 13.4f, &otherH);    // other model: kept
     t0 = nowMs();
-    while (nowMs() - t0 < 1500) { if (nowMs() - lastSend >= 50) { lastSend = nowMs(); sendFriend(true, 1.5f + (nowMs() - t0) / 1000.f); } frame(); }
+    while (nowMs() - t0 < 1000) { if (nowMs() - lastSend >= 50) { lastSend = nowMs(); sendFriend(true, 1.5f + (nowMs() - t0) / 1000.f); } frame(); }
+    EXPECT(g_poolFlags[0] == 0x80 && !g_entities[parkedH].alive);   // duplicate parked copy removed
+    EXPECT(g_poolFlags[1] == 0 && g_entities[missionH].alive);
+    EXPECT(g_poolFlags[2] == 0 && g_entities[otherH].alive);
+    {
+        void* copy = nullptr;
+        for (auto& kv : g_entities) if (kv.second.alive && kv.second.isVehicle && F<int16_t>(kv.second.mem, 0x22) == 560 && kv.first != missionH) copy = kv.second.mem;
+        EXPECT(copy && std::fabs(F<float>(copy, 0x4C0) - 600.f) < 0.01f);
+    }
+    fCarHealth = 0.f;
+    t0 = nowMs();
+    while (nowMs() - t0 < 500) { if (nowMs() - lastSend >= 50) { lastSend = nowMs(); sendFriend(true, 2.5f + (nowMs() - t0) / 1000.f); } frame(); }
+    EXPECT(g_explodeCalls == 1);
     EXPECT(g_opCount[0x00A5] == 1);  // CREATE_CAR
     EXPECT(g_opCount[0x036A] >= 1);  // WARP_CHAR_INTO_CAR
     EXPECT(g_opCount[0x0229] == 1);  // CHANGE_CAR_COLOUR
     void* car = nullptr;
-    for (auto& kv : g_entities) if (kv.second.alive && kv.second.isVehicle) car = kv.second.mem;
+    for (auto& kv : g_entities) if (kv.second.alive && kv.second.isVehicle && kv.first != missionH && kv.first != otherH) car = kv.second.mem;
     EXPECT(car != nullptr);
     if (car && avatar) {
         EXPECT(F<int16_t>(car, 0x22) == 560);
@@ -407,7 +561,7 @@ static int childMain(int argc, char** argv) {
 // exists (otherwise the process heap lands on 0x400000), then let it run.
 static const uintptr_t kNeeded[] = {0x401000, 0x43E0C0, 0x446F90, 0x4648E0, 0x469EB0, 0x532B00, 0x53BDD7, 0x53D910,
                                     0x53E293, 0x53E981, 0x542560, 0x54FF90, 0x5BA340, 0x5D4FD7, 0x70CE30, 0x719380,
-                                    0x71A700, 0xB7CB48, 0xB7CD98, 0xBA67A4, 0xC17044};
+                                    0x71A700, 0xB7CB48, 0xB7CD98, 0xBA67A4, 0xC17044, 0xB74494, 0xC8131C};
 static int runParent(int argc, char** argv) {
     char self[MAX_PATH];
     GetModuleFileNameA(nullptr, self, MAX_PATH);

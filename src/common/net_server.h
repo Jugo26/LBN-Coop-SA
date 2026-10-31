@@ -47,6 +47,9 @@ public:
     std::vector<ServerPlayerInfo> players() const;
     uint64_t relayedStates() const { return relayed_; }
     uint32_t duplicateNicks() const { return duplicateNicks_; }
+    uint32_t damageRelayed() const { return damageRelayed_; }
+    uint32_t damageDropped() const { return damageDropped_; }
+    uint8_t authorityId() const { return authority_; }
 
 private:
     struct Slot {
@@ -56,7 +59,14 @@ private:
         uint16_t skin = 0;
         uint32_t stateCount = 0;
         uint32_t stateWindowStart = 0;
+        uint32_t damageCount = 0;
+        uint32_t damageWindowStart = 0;
+        bool hasPos = false;
+        Vec3 lastPos;
     };
+    void updateAuthority();
+    void handleDamage(int slot, const uint8_t* data, size_t len);
+    void handleWorld(int slot, const uint8_t* data, size_t len);
     void onConnect(ENetPeer* peer);
     void onReceive(ENetPeer* peer, const uint8_t* data, size_t len);
     void onDisconnect(ENetPeer* peer, bool graceful);
@@ -73,6 +83,10 @@ private:
     uint32_t lastPings_ = 0;
     std::atomic<uint64_t> relayed_{0};
     std::atomic<uint32_t> duplicateNicks_{0};
+    std::atomic<uint32_t> damageRelayed_{0}, damageDropped_{0};
+    std::atomic<uint8_t> authority_{0xFF};   // the "host" for world state: lowest connected id
+    WorldState world_;
+    bool haveWorld_ = false;
     mutable std::mutex mu_;
     std::thread thread_;
     std::atomic<bool> threadRun_{false};

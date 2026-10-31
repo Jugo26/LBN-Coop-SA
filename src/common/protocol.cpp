@@ -36,6 +36,8 @@ void putState(ByteWriter& w, const PlayerState& s) {
     w.u8(uint8_t(s.anim));
     w.u8(s.health);
     w.u8(s.armour);
+    w.u8(s.weapon);
+    w.u8(s.wanted);
     if (s.flags & PlayerState::InVehicle) {
         w.u8(s.seat);
         if (s.flags & PlayerState::RemoteVehicle) {
@@ -68,6 +70,8 @@ bool getState(ByteReader& r, PlayerState& s) {
     s.anim = MoveAnim(a);
     s.health = r.u8();
     s.armour = r.u8();
+    s.weapon = r.u8();
+    s.wanted = r.u8();
     if (s.flags & PlayerState::InVehicle) {
         s.seat = r.u8();
         if (s.flags & PlayerState::RemoteVehicle) {
@@ -146,6 +150,29 @@ std::vector<uint8_t> encode(const PingsMsg& m) {
     for (size_t i = 0; i < n; ++i) { w.u8(m.entries[i].id); w.u16(m.entries[i].pingMs); }
     return w.data();
 }
+
+namespace {
+void putDamage(ByteWriter& w, const DamageMsg& m) { w.u8(m.peer); w.u16(m.amountX10); w.u8(m.weapon); }
+void getDamage(ByteReader& r, DamageMsg& m) { m.peer = r.u8(); m.amountX10 = r.u16(); m.weapon = r.u8(); }
+void putWorld(ByteWriter& w, const WorldState& s) {
+    w.u8(s.hour); w.u8(s.minute); w.u16(uint16_t(s.weather)); w.u8(s.wanted); w.u8(s.flags);
+    w.u8(s.carDensityX100); w.u8(s.pedDensityX100);
+}
+void getWorld(ByteReader& r, WorldState& s) {
+    s.hour = r.u8(); s.minute = r.u8(); s.weather = int16_t(r.u16()); s.wanted = r.u8(); s.flags = r.u8();
+    s.carDensityX100 = r.u8(); s.pedDensityX100 = r.u8();
+}
+}
+std::vector<uint8_t> encodeDamageC2S(const DamageMsg& m) { ByteWriter w; w.u8(uint8_t(MsgType::DamageC2S)); putDamage(w, m); return w.data(); }
+std::vector<uint8_t> encodeDamageS2C(const DamageMsg& m) { ByteWriter w; w.u8(uint8_t(MsgType::DamageS2C)); putDamage(w, m); return w.data(); }
+std::vector<uint8_t> encodeWorldC2S(const WorldState& s) { ByteWriter w; w.u8(uint8_t(MsgType::WorldC2S)); putWorld(w, s); return w.data(); }
+std::vector<uint8_t> encode(const WorldS2CMsg& m) { ByteWriter w; w.u8(uint8_t(MsgType::WorldS2C)); w.u8(m.authorityId); putWorld(w, m.w); return w.data(); }
+std::vector<uint8_t> encode(const SessionMsg& m) { ByteWriter w; w.u8(uint8_t(MsgType::Session)); w.u8(m.authorityId); return w.data(); }
+bool decodeDamageC2S(const uint8_t* p, size_t n, DamageMsg& m) { ByteReader r(p, n); if (!begin(r, MsgType::DamageC2S)) return false; getDamage(r, m); return r.ok(); }
+bool decodeDamageS2C(const uint8_t* p, size_t n, DamageMsg& m) { ByteReader r(p, n); if (!begin(r, MsgType::DamageS2C)) return false; getDamage(r, m); return r.ok(); }
+bool decodeWorldC2S(const uint8_t* p, size_t n, WorldState& s) { ByteReader r(p, n); if (!begin(r, MsgType::WorldC2S)) return false; getWorld(r, s); return r.ok() && isSaneWorld(s); }
+bool decode(const uint8_t* p, size_t n, WorldS2CMsg& m) { ByteReader r(p, n); if (!begin(r, MsgType::WorldS2C)) return false; m.authorityId = r.u8(); getWorld(r, m.w); return r.ok() && isSaneWorld(m.w); }
+bool decode(const uint8_t* p, size_t n, SessionMsg& m) { ByteReader r(p, n); if (!begin(r, MsgType::Session)) return false; m.authorityId = r.u8(); return r.ok(); }
 
 bool peekType(const uint8_t* p, size_t n, MsgType& out) {
     if (!p || n < 1) return false;
@@ -234,6 +261,7 @@ bool isSaneState(const PlayerState& s) {
     if (!isFiniteVec(s.pos) || !isFiniteVec(s.vel) || !std::isfinite(s.heading)) return false;
     if (!inWorld(s.pos)) return false;
     if (s.vel.length() > 500.f) return false;
+    if (s.wanted > 6) return false;
     if (s.flags & PlayerState::InVehicle) {
         if (s.seat > 16) return false;
         if (!(s.flags & PlayerState::RemoteVehicle)) {
@@ -276,6 +304,37 @@ bool isSpawnableVehicleModel(uint16_t m) {
     default:
         return true;
     }
+}
+
+bool isValidWeapon(uint8_t w) { return w <= 46 && !(w >= 19 && w <= 21); }
+
+int weaponModel(uint8_t w) {
+    // eWeaponType -> eWeaponModel (SA 1.0; cross-checked with plugin-sdk enums).
+    static const int16_t kModel[47] = {
+        -1, 331, 333, 334, 335, 336, 337, 338, 339, 341,   // 0-9  fists, knuckles, golf, nightstick, knife, bat, shovel, cue, katana, chainsaw
+        321, 322, 323, 324, 325, 326, 342, 343, 344, -1,   // 10-19 dildos/vibes, flowers, cane, grenade, teargas, molotov, (rocket proj.)
+        -1, -1, 346, 347, 348, 349, 350, 351, 352, 353,    // 20-29 -, -, colt45, silenced, deagle, shotgun, sawnoff, spas, uzi, mp5
+        355, 356, 372, 357, 358, 359, 360, 361, 362, 363,  // 30-39 ak47, m4, tec9, rifle, sniper, rpg, heatseek, flame, minigun, satchel
+        364, 365, 366, 367, 368, 369, 371};                // 40-46 detonator, spraycan, extinguisher, camera, nv, ir, parachute
+    return w <= 46 ? kModel[w] : -1;
+}
+
+const char* weaponNamePtBr(uint8_t w) {
+    switch (w) {
+    case 0: return "maos"; case 1: return "soco ingles"; case 4: return "faca"; case 5: return "taco";
+    case 8: return "katana"; case 9: return "motosserra"; case 16: return "granada"; case 18: return "molotov";
+    case 22: return "pistola"; case 23: return "pistola c/ silenciador"; case 24: return "desert eagle";
+    case 25: return "escopeta"; case 26: return "cano serrado"; case 27: return "escopeta de combate";
+    case 28: return "uzi"; case 29: return "mp5"; case 30: return "ak-47"; case 31: return "m4"; case 32: return "tec-9";
+    case 33: return "rifle"; case 34: return "sniper"; case 35: return "bazuca"; case 36: return "bazuca teleguiada";
+    case 37: return "lanca-chamas"; case 38: return "minigun"; case 46: return "paraquedas";
+    default: return isValidWeapon(w) ? "arma" : "?";
+    }
+}
+
+bool isSaneWorld(const WorldState& w) {
+    return w.hour < 24 && w.minute < 60 && w.weather >= 0 && w.weather < 46 && w.wanted <= 6 &&
+           w.carDensityX100 <= 200 && w.pedDensityX100 <= 200;
 }
 
 const char* rejectReasonPtBr(RejectReason r) {

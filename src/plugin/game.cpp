@@ -68,6 +68,31 @@ int pedSeat(void* ped, void* veh) {
 
 int16_t modelOf(void* ent) { return ent ? at<int16_t>(ent, off::modelIndex) : int16_t(-1); }
 
+int pedCurrentWeapon(void* ped) {
+    if (!ped) return 0;
+    uint8_t slot = at<uint8_t>(ped, off::pedWeaponSlot);
+    if (slot >= 13) return 0;
+    int t = at<int>(ped, off::pedWeapons + slot * off::weaponSize);
+    return (t >= 0 && t <= 46) ? t : 0;
+}
+
+bool pedIsDead(void* ped) {
+    if (!ped) return false;
+    int st = at<int>(ped, off::pedState);
+    return st == 54 || st == 55 || at<float>(ped, off::pedHealth) <= 0.f;
+}
+
+void forEachVehicle(void (*fn)(void* veh, void* ctx), void* ctx) {
+    uint8_t* pool = global<uint8_t*>(kVehiclePool);
+    if (!pool) return;
+    uint8_t* objects = at<uint8_t*>(pool, 0);
+    uint8_t* flags = at<uint8_t*>(pool, 4);
+    int size = at<int>(pool, 8);
+    if (!objects || !flags || size <= 0 || size > 4096) return;
+    for (int i = 0; i < size; ++i)
+        if (!(flags[i] & 0x80)) fn(objects + size_t(i) * kVehicleSlot, ctx);
+}
+
 void setPhysicalTransform(void* ent, const lbn::Vec3& pos, const lbn::Vec3* right, const lbn::Vec3* fwd,
                           const lbn::Vec3* up, const lbn::Vec3& velMps) {
     if (!ent) return;

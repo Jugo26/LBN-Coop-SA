@@ -43,6 +43,14 @@ struct CoopConfig {
     int keyDisconnect = 0x79;      // F10
     int keyChat = 'T';
     int keyUnstuck = 0x75;         // F6 (works while the F8 menu is open) = /soltar
+    // [Mundo] (v0.1.2). Rules/clock/weather/wanted are decided by the HOST's ini; clients follow.
+    bool pvp = true;               // players can hurt each other (host decides)
+    bool syncClock = true;         // everyone uses the host's clock
+    bool syncWeather = true;       // everyone uses the host's weather
+    bool syncWanted = true;        // shared wanted level (host decides)
+    int trafficDensityPct = 100;   // 0..200; != 100 forces the multiplier on everyone (host decides)
+    int pedDensityPct = 100;
+    bool removeDuplicateCars = true; // local: delete my empty parked/traffic copy of a car a friend took
 };
 
 // Fills cfg from an ini file; returns a list of warnings (pt-BR) through `warnings`.

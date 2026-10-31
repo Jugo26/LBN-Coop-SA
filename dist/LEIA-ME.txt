@@ -1,11 +1,31 @@
 ===========================================================================
- LBN Coop SA - Etapa 1 (versão 0.1.1)
+ LBN Coop SA - Etapa 2 (versão 0.1.2)
  Mod cooperativo ORIGINAL para GTA San Andreas 1.0 US (PC, 32 bits)
 ===========================================================================
 
 *** ABRA O JOGO SEMPRE PELO LbnCoopSA-Iniciar.exe ***
 (na pasta do GTA). Ele confere se existe versão nova do mod, atualiza
 sozinho (com backup) e depois abre o gta_sa.exe. Detalhes na seção 2.1.
+
+NOVIDADES DA v0.1.2 (etapa 2: mundo sincronizado)
+- Arma na mão: o boneco do outro jogador segura a mesma arma que ele.
+- Dano entre jogadores (PvP): tiro, soco e atropelamento no boneco do
+  amigo tiram vida/colete DELE (o colete absorve primeiro). Vida e colete
+  aparecem embaixo do nome e no menu F8; "(morto)" quando ele morre.
+  Desligue com PvP=0 no ini do HOST.
+- Nível de procurado compartilhado: se alguém ganha estrelas, o host
+  sobe para o mesmo nível e todos ficam com as estrelas do host (quando o
+  host perde as estrelas, todos perdem).
+- Hora e clima: todos seguem a hora e o clima do host.
+- Carro do amigo: além de modelo, cores e passageiros, agora a vida do
+  carro (fumaça/estado) e a explosão seguem o dono do carro.
+- Trânsito: quando o amigo pega um carro estacionado/de trânsito que
+  também existe no seu jogo, a sua cópia vazia é apagada (sem carro
+  duplicado no mesmo lugar). Densidade de trânsito/pedestres opcional.
+- Protocolo novo (3): v0.1.2 NÃO conecta com v0.1.1. Os dois abrem o jogo
+  pelo LbnCoopSA-Iniciar.exe para atualizar.
+Tudo isso foi testado só com o "jogo falso" e testes automáticos; ainda
+não foi testado no GTA SA real. Detalhes e limites nas seções 3, 5 e 6.
 
 NOVIDADES DA v0.1.1
 - O boneco do outro jogador não tem mais colisão com você: não prende,
@@ -122,6 +142,24 @@ modelo novo fica em LbnCoopSA-exemplo.ini) e acrescente
 RemotePedCollision=0 (se faltar, o mod já usa 0).
     TimeoutMs=10000 tempo sem resposta até o jogador "cair".
 
+Seção [Mundo] (nova na v0.1.2). VALE O INI DO HOST: os amigos seguem as
+regras do host (só RemoveDuplicateCars vale para cada um):
+    PvP=1           1 = jogadores podem se ferir; 0 = ninguém fere ninguém
+                    (bonecos dos outros ficam invencíveis, como na v0.1.1).
+    SyncClock=1     todos usam a hora do jogo do host.
+    SyncWeather=1   todos usam o clima do host (o clima fica "travado" no
+                    do host enquanto estiver conectado; ao sair, volta).
+    SyncWanted=1    estrelas de procurado compartilhadas, decididas pelo
+                    host.
+    TrafficDensity=100  densidade de trânsito em % (0 a 200). 100 = normal
+    PedDensity=100      do jogo: o mod não mexe em nada. Outro valor vale
+                    para todos enquanto estiver conectado (missões que mudam
+                    a densidade podem ser sobrescritas; prefira 100).
+    RemoveDuplicateCars=1  apaga a SUA cópia vazia (estacionada ou de
+                    trânsito) de um carro que o amigo pegou.
+Se o seu LbnCoopSA.ini não tem a seção [Mundo] (ini antigo), o mod usa
+os valores acima. O modelo novo fica em LbnCoopSA-exemplo.ini.
+
 ---------------------------------------------------------------------------
 4) RADMIN VPN E FIREWALL
 ---------------------------------------------------------------------------
@@ -171,6 +209,12 @@ Teclas:
     F9   trocar o modo host/cliente (só com a sessão desligada)
     F10  sair da sessão
     T    abrir o chat; Enter envia; Esc cancela
+Quem é o "host do mundo": quem hospeda (F7 com Mode=host). Se ele sair,
+o próximo jogador (menor id) assume a hora, o clima e as estrelas.
+PvP: com PvP=1 você pode atirar/bater/atropelar o boneco do amigo; o
+dano é calculado no SEU jogo e aplicado no jogo DELE. Para os tiros
+pegarem, o boneco do amigo tem colisão só quando está a mais de 1,6 m de
+você; mais perto que isso ele continua sem colisão (não te prende).
 Comandos no chat: /ping  /jogadores  /soltar  /sair
     /soltar  se você ficar preso (em parede, carro ou no boneco do
              outro), move o seu boneco uns 3 m para um lugar livre.
@@ -182,14 +226,37 @@ seu próprio Nickname no LbnCoopSA.ini.
 Log: LbnCoopSA.log fica na pasta do gta_sa.exe (recriado a cada abertura).
 
 ---------------------------------------------------------------------------
-6) LIMITES CONHECIDOS DA ETAPA 1
+6) LIMITES CONHECIDOS (v0.1.2)
 ---------------------------------------------------------------------------
-- No jogo real só foi confirmado (pelo LBN, via Radmin): conexão, ping
-  ~18 ms sem perda e criação do boneco remoto. O resto ainda não.
-- Cada um continua no SEU próprio mundo/save: trânsito, pedestres, polícia,
-  missões, hora e clima NÃO são sincronizados ainda.
-- Bonecos e carros remotos são invencíveis e não podem ser mirados (dano,
-  armas e tiros chegam na etapa 2).
+- No jogo real só foi confirmado (pelo LBN, via Radmin, na v0.1.0):
+  conexão, ping ~18 ms sem perda e criação do boneco remoto. Tudo da
+  v0.1.1 e da v0.1.2 foi testado só no "jogo falso" e em testes
+  automáticos.
+- Armas: só a arma NA MÃO aparece. Mira, tiros, clarão e projéteis do
+  outro jogador ainda NÃO aparecem para você (o dano dele em você chega,
+  mas você não vê o tiro sair do boneco dele). Munição não é copiada.
+- Dano/PvP (aproximado): quem acerta é o jogo de quem atirou. Com lag, o
+  boneco que você vê está ~120 ms atrás do jogador real, então um tiro
+  "na trave" pode pegar ou não. Tiro em quem está DENTRO de um carro não
+  fere o jogador (fere só o carro do seu lado). Fogo/molotov no boneco do
+  amigo não fere. Soco a menos de 1,6 m depende do jogo detectar o golpe
+  sem colisão (não testado). Morte: cada jogo cuida da sua (hospital).
+- Carros: a vida do carro segue o dono, mas portas, pneus, peças e
+  amassados não. Carro que o amigo só gerou (sem entrar) não aparece:
+  ele aparece quando alguém entra. Se você assumir o volante do carro do
+  outro, cada jogo pode ficar com uma cópia diferente.
+- Trânsito e pedestres de IA continuam independentes (cada jogo tem os
+  seus). O mod só remove a duplicata do carro que o amigo pegou e pode
+  ajustar a densidade. Polícia: as estrelas são as mesmas, mas cada jogo
+  tem as suas viaturas/policiais.
+- Hora/clima: o mod corrige a hora quando a diferença passa de 2 minutos
+  do jogo; o clima fica travado no do host. Missões que mudam hora ou
+  clima no jogo de um cliente podem "brigar" com o host.
+- Procurado: o host decide. Se o host pagar o Pay'n'Spray ou perder as
+  estrelas, todos perdem. Cliente que perde as estrelas sozinho volta a
+  ter as do grupo em ~3 s.
+- Pickups/itens (armas no chão, dinheiro, colete) NÃO são sincronizados:
+  cada jogo tem os seus (ficou para depois, ver roteiro).
 - Animação básica: parado/andar/correr/sprint. Pulo, soco, mira, nadar,
   agachar ainda não aparecem para o outro.
 - Skin 0 (CJ com roupas) não suportada para o boneco remoto; use um ID de
@@ -207,17 +274,15 @@ Log: LbnCoopSA.log fica na pasta do gta_sa.exe (recriado a cada abertura).
 7) ROTEIRO (próximas etapas)
 ---------------------------------------------------------------------------
 ETAPA 2 - Sincronizar o mundo
-- Armas: arma na mão, mira, tiros e efeitos replicados; troca de arma.
-- Dano: vida/colete reais nos bonecos remotos, dano entre jogadores
-  (configurável: amigável ou não), morte e respawn sincronizados.
-- Nível de procurado: estrelas compartilhadas (polícia persegue o grupo);
-  o host decide o nível.
-- Trânsito e pedestres: o host vira "dono" do trânsito perto dos jogadores
-  e replica carros/pedestres de IA importantes; donos por proximidade
-  para dividir a carga; dano/estado de veículos (portas, pneus, explosão).
-- Hora, clima e dinheiro coerentes entre os jogos.
-- Animações completas (pulo, soco, agachar, nadar, motos/bikes, sair do
-  carro), skin do CJ com roupas.
+- FEITO na v0.1.2 (a confirmar no jogo real): arma na mão, dano entre
+  jogadores (PvP configurável), vida/colete na tela, procurado
+  compartilhado, hora e clima do host, vida/explosão do carro, sem carro
+  duplicado do trânsito.
+- FALTA: mira, tiros e efeitos replicados; munição; portas/pneus/peças
+  dos carros; carros só gerados (sem ninguém dentro); o host como "dono"
+  do trânsito e dos pedestres de IA perto dos jogadores; pickups e
+  dinheiro; animações completas (pulo, soco, agachar, nadar, motos/bikes,
+  sair do carro); skin do CJ com roupas.
 
 ETAPA 3 - Campanha cooperativa
 - O host roda o script da missão; os clientes espelham os objetivos

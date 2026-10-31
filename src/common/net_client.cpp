@@ -178,6 +178,28 @@ void Client::handlePacket(const uint8_t* data, size_t len) {
         push(e);
         break;
     }
+    case MsgType::DamageS2C: {
+        ClientEvent e{ClientEvent::Damage};
+        if (!decodeDamageS2C(data, len, e.damage) || e.damage.peer >= LBN_MAX_PLAYERS || e.damage.amountX10 > 2000) return;
+        e.id = e.damage.peer;
+        push(e);
+        break;
+    }
+    case MsgType::WorldS2C: {
+        WorldS2CMsg m;
+        if (!decode(data, len, m)) return;
+        ClientEvent e{ClientEvent::World}; e.id = m.authorityId; e.world = m.w;
+        push(e);
+        break;
+    }
+    case MsgType::Session: {
+        SessionMsg m;
+        if (!decode(data, len, m)) return;
+        ClientEvent e{ClientEvent::Session}; e.id = m.authorityId;
+        push(e);
+        LOGI("Cliente: autoridade do mundo (host) = id %u", unsigned(m.authorityId));
+        break;
+    }
     default: break;
     }
 }
@@ -197,6 +219,16 @@ bool Client::sendState(const PlayerState& s) {
 bool Client::sendChat(const std::string& text) {
     if (status_ != Status::Connected || text.empty()) return false;
     return sendTo(peer_, encodeChatC2S(text), true);
+}
+
+bool Client::sendDamage(const DamageMsg& d) {
+    if (status_ != Status::Connected) return false;
+    return sendTo(peer_, encodeDamageC2S(d), true);
+}
+
+bool Client::sendWorld(const WorldState& w) {
+    if (status_ != Status::Connected) return false;
+    return sendTo(peer_, encodeWorldC2S(w), true);
 }
 
 uint32_t Client::pingMs() const { return peer_ ? peer_->roundTripTime : 0; }
@@ -245,6 +277,14 @@ bool AsyncClient::sendState(const PlayerState& s) {
 bool AsyncClient::sendChat(const std::string& text) {
     std::lock_guard<std::mutex> lk(mu_);
     return client_.sendChat(text);
+}
+bool AsyncClient::sendDamage(const DamageMsg& d) {
+    std::lock_guard<std::mutex> lk(mu_);
+    return client_.sendDamage(d);
+}
+bool AsyncClient::sendWorld(const WorldState& w) {
+    std::lock_guard<std::mutex> lk(mu_);
+    return client_.sendWorld(w);
 }
 Client::Status AsyncClient::status() {
     std::lock_guard<std::mutex> lk(mu_);

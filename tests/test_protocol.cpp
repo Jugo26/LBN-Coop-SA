@@ -63,7 +63,7 @@ TEST(state_on_foot_roundtrip) {
     CHECK(o.pos.x == s.pos.x && o.pos.y == s.pos.y && o.pos.z == s.pos.z);
     CHECK(o.vel.x == 1.5f && o.heading == 1.25f && o.anim == MoveAnim::Sprint);
     CHECK(o.health == 87 && o.armour == 50);
-    CHECK(b.size() == 1 + 4 + 4 + 1 + 12 + 12 + 4 + 1 + 1 + 1);
+    CHECK(b.size() == 1 + 4 + 4 + 1 + 12 + 12 + 4 + 1 + 1 + 1 + 1 + 1);
 }
 
 TEST(state_vehicle_roundtrip_s2c) {
@@ -152,4 +152,51 @@ TEST(hello_mod_version_roundtrip_and_message) {
     CHECK(msg.size() <= 128); // fits RejectMsg detail
     CHECK(modVersionMismatchPtBr("0.1.0", "").size() <= 128);
     CHECK(parseVersionOk(LBN_MOD_VERSION));
+}
+
+TEST(state_v3_weapon_wanted_roundtrip) {
+    PlayerState s = sampleFoot(); s.weapon = 31; s.wanted = 4;
+    auto b = encodeStateC2S(s);
+    PlayerState o; CHECK(decodeStateC2S(b.data(), b.size(), o));
+    CHECK(o.weapon == 31 && o.wanted == 4);
+    s.wanted = 7; CHECK(!isSaneState(s));
+}
+
+TEST(weapon_table) {
+    CHECK(isValidWeapon(0) && isValidWeapon(24) && isValidWeapon(46));
+    CHECK(!isValidWeapon(19) && !isValidWeapon(20) && !isValidWeapon(21) && !isValidWeapon(47) && !isValidWeapon(255));
+    CHECK(weaponModel(0) == -1 && weaponModel(22) == 346 && weaponModel(24) == 348 && weaponModel(31) == 356);
+    CHECK(weaponModel(32) == 372 && weaponModel(38) == 362 && weaponModel(46) == 371 && weaponModel(9) == 341);
+    for (int w = 1; w <= 46; ++w) if (isValidWeapon(uint8_t(w))) CHECK(weaponModel(uint8_t(w)) >= 321 && weaponModel(uint8_t(w)) <= 372);
+    CHECK(std::string(weaponNamePtBr(30)) == "ak-47");
+}
+
+TEST(damage_world_session_roundtrip) {
+    DamageMsg d; d.peer = 2; d.amountX10 = 465; d.weapon = 24;
+    auto b = encodeDamageC2S(d); DamageMsg o;
+    CHECK(decodeDamageC2S(b.data(), b.size(), o) && o.peer == 2 && o.amountX10 == 465 && o.weapon == 24);
+    CHECK(!decodeDamageS2C(b.data(), b.size(), o)); // type is checked
+    auto b2 = encodeDamageS2C(d); CHECK(decodeDamageS2C(b2.data(), b2.size(), o));
+    CHECK(!decodeDamageC2S(b.data(), b.size() - 1, o)); // truncated
+
+    WorldState w; w.hour = 23; w.minute = 59; w.weather = 8; w.wanted = 3;
+    w.flags = WorldState::PvP | WorldState::SyncClock; w.carDensityX100 = 50; w.pedDensityX100 = 150;
+    auto wb = encodeWorldC2S(w); WorldState wo;
+    CHECK(decodeWorldC2S(wb.data(), wb.size(), wo));
+    CHECK(wo.hour == 23 && wo.minute == 59 && wo.weather == 8 && wo.wanted == 3 && wo.flags == w.flags);
+    CHECK(wo.carDensityX100 == 50 && wo.pedDensityX100 == 150);
+    WorldS2CMsg m; m.authorityId = 0; m.w = w;
+    auto mb = encode(m); WorldS2CMsg mo;
+    CHECK(decode(mb.data(), mb.size(), mo) && mo.authorityId == 0 && mo.w.weather == 8);
+    w.hour = 24; auto bad = encodeWorldC2S(w); CHECK(!decodeWorldC2S(bad.data(), bad.size(), wo));
+    w.hour = 1; w.weather = -1; bad = encodeWorldC2S(w); CHECK(!decodeWorldC2S(bad.data(), bad.size(), wo));
+    w.weather = 1; w.wanted = 9; bad = encodeWorldC2S(w); CHECK(!decodeWorldC2S(bad.data(), bad.size(), wo));
+
+    SessionMsg sm; sm.authorityId = 3; auto sb = encode(sm); SessionMsg so;
+    CHECK(decode(sb.data(), sb.size(), so) && so.authorityId == 3);
+}
+
+TEST(protocol_version_is_3) {
+    CHECK(LBN_PROTOCOL_VERSION == 3);
+    CHECK(std::string(LBN_MOD_VERSION) == "0.1.2");
 }

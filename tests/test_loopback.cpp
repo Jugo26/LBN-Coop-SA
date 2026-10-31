@@ -167,6 +167,90 @@ TEST(loopback_old_protocol1_client_rejected) {
 
 
 
+TEST(loopback_v011_protocol2_client_rejected) {
+    // A friend still on v0.1.1 (protocol 2) must get the clear "update" message.
+    HelloMsg hm; hm.version = 2; hm.nick = "Amigo"; hm.modVersion = "0.1.1";
+    std::string detail;
+    CHECK(helloRejectedAsBadVersion(hm, &detail));
+    CHECK(detail.find("host v0.1.2, voce v0.1.1") != std::string::npos);
+}
+
+namespace {
+bool hasDamageFrom(const std::vector<ClientEvent>& v, uint8_t from, uint16_t amt) {
+    for (auto& e : v) if (e.type == ClientEvent::Damage && e.id == from && e.damage.amountX10 == amt) return true;
+    return false;
+}
+}
+
+TEST(loopback_world_authority_damage) {
+    Server srv; ServerOptions o; o.port = ++g_port;
+    CHECK(srv.start(o));
+    Client a, b, c;
+    std::vector<std::vector<ClientEvent>> ev(3);
+    CHECK(a.connect("127.0.0.1", o.port, "Host", 0, 3000));
+    CHECK(pumpUntil(srv, {&a}, [&] { return a.connected() && countType(ev[0], ClientEvent::Session) >= 1; }, 3000, &ev));
+    CHECK(srv.authorityId() == a.selfId());
+    CHECK(b.connect("127.0.0.1", o.port, "Amigo", 0, 3000));
+    CHECK(c.connect("127.0.0.1", o.port, "Amigo2", 0, 3000));
+    CHECK(pumpUntil(srv, {&a, &b, &c}, [&] { return b.connected() && c.connected() &&
+        countType(ev[1], ClientEvent::Session) >= 1 && countType(ev[2], ClientEvent::Session) >= 1; }, 3000, &ev));
+    for (auto& e : ev[1]) if (e.type == ClientEvent::Session) CHECK(e.id == a.selfId());
+
+    // Weapon sanitizing: invalid weapon id 20 is relayed as 0, valid 24 kept, wanted kept.
+    PlayerState s; s.timeMs = nowMs(); s.pos = {1, 2, 3}; s.weapon = 20; s.wanted = 2;
+    CHECK(b.sendState(s));
+    s.seq = 1; s.weapon = 24; s.pos = {1.5f, 2, 3};
+    CHECK(pumpUntil(srv, {&a, &b, &c}, [&] { return countType(ev[0], ClientEvent::State) >= 1; }, 2000, &ev));
+    CHECK(b.sendState(s));
+    CHECK(pumpUntil(srv, {&a, &b, &c}, [&] { return countType(ev[0], ClientEvent::State) >= 2; }, 2000, &ev));
+    { int n = 0; for (auto& e : ev[0]) if (e.type == ClientEvent::State) { CHECK(e.state.weapon == (n == 0 ? 0 : 24)); CHECK(e.state.wanted == 2); ++n; } }
+
+    // Damage before the host enabled PvP is dropped.
+    DamageMsg d; d.peer = c.selfId(); d.amountX10 = 250; d.weapon = 24;
+    CHECK(b.sendDamage(d));
+    CHECK(pumpUntil(srv, {&a, &b, &c}, [&] { return srv.damageDropped() >= 1; }, 2000, &ev));
+
+    // A non-authority cannot change the world.
+    WorldState w; w.hour = 3; w.weather = 9; w.flags |= WorldState::PvP;
+    CHECK(b.sendWorld(w));
+    pumpUntil(srv, {&a, &b, &c}, [] { return false; }, 300, &ev);
+    CHECK(countType(ev[2], ClientEvent::World) == 0);
+
+    // Host world goes to everybody else (not echoed to the host).
+    w.hour = 21; w.minute = 30; w.weather = 16; w.wanted = 2;
+    CHECK(a.sendWorld(w));
+    CHECK(pumpUntil(srv, {&a, &b, &c}, [&] { return countType(ev[1], ClientEvent::World) >= 1 && countType(ev[2], ClientEvent::World) >= 1; }, 2000, &ev));
+    for (auto& e : ev[2]) if (e.type == ClientEvent::World) { CHECK(e.world.hour == 21 && e.world.weather == 16 && (e.world.flags & WorldState::PvP)); CHECK(e.id == a.selfId()); }
+    CHECK(countType(ev[0], ClientEvent::World) == 0);
+
+    // With PvP on, damage reaches only the target, tagged with the attacker id.
+    CHECK(b.sendDamage(d));
+    CHECK(pumpUntil(srv, {&a, &b, &c}, [&] { return hasDamageFrom(ev[2], b.selfId(), 250); }, 2000, &ev));
+    CHECK(countType(ev[0], ClientEvent::Damage) == 0 && countType(ev[1], ClientEvent::Damage) == 0);
+    CHECK(srv.damageRelayed() == 1);
+    // Self damage, bogus target and absurd values are dropped.
+    uint32_t dropped = srv.damageDropped();
+    DamageMsg bad = d; bad.peer = b.selfId(); CHECK(b.sendDamage(bad));
+    bad.peer = 4; CHECK(b.sendDamage(bad));
+    bad.peer = c.selfId(); bad.amountX10 = 5000; CHECK(b.sendDamage(bad));
+    CHECK(pumpUntil(srv, {&a, &b, &c}, [&] { return srv.damageDropped() >= dropped + 3; }, 2000, &ev));
+    CHECK(srv.damageRelayed() == 1);
+
+    // A late joiner receives the last host world immediately.
+    Client late; std::vector<std::vector<ClientEvent>> ev2(1);
+    c.disconnect(200);
+    CHECK(late.connect("127.0.0.1", o.port, "Atrasado", 0, 3000));
+    CHECK(pumpUntil(srv, {&late}, [&] { return countType(ev2[0], ClientEvent::World) >= 1; }, 3000, &ev2));
+    for (auto& e : ev2[0]) if (e.type == ClientEvent::World) CHECK(e.world.hour == 21);
+
+    // Host leaves -> the lowest remaining id becomes the authority and everybody is told.
+    uint8_t bid = b.selfId();
+    a.disconnect(300);
+    CHECK(pumpUntil(srv, {&b, &late}, [&] { return srv.authorityId() == bid; }, 3000, nullptr));
+    b.disconnect(200); late.disconnect(200);
+    srv.stop();
+}
+
 TEST(loopback_timeout_detected) {
     Server srv; ServerOptions o; o.port = ++g_port; o.timeoutMs = 1500;
     CHECK(srv.start(o));

@@ -60,6 +60,7 @@ void Server::stop() {
     enet_host_destroy(host_);
     host_ = nullptr;
     for (auto& s : slots_) s = Slot();
+    authority_ = 0xFF; haveWorld_ = false;
     if (netRef_) { netShutdown(); netRef_ = false; }
     LOGI("Servidor encerrado");
 }
@@ -183,6 +184,9 @@ void Server::handleHello(ENetPeer* peer, const uint8_t* data, size_t len) {
         PlayerJoinMsg j; j.id = uint8_t(i); j.nick = slots_[i].nick; j.skin = slots_[i].skin;
         sendTo(peer, encode(j), true);
     }
+    updateAuthority();
+    { SessionMsg sm; sm.authorityId = authority_; sendTo(peer, encode(sm), true); }
+    if (haveWorld_ && authority_ != slot) { WorldS2CMsg wm; wm.authorityId = authority_; wm.w = world_; sendTo(peer, encode(wm), true); }
     PlayerJoinMsg me; me.id = uint8_t(slot); me.nick = nick; me.skin = s.skin;
     broadcast(encode(me), true, slot);
     LOGI("Servidor: '%s' entrou (id %d, skin %u)", nick.c_str(), slot, unsigned(s.skin));
@@ -208,6 +212,9 @@ void Server::onReceive(ENetPeer* peer, const uint8_t* data, size_t len) {
         uint32_t now = nowMs();
         if (now - s.stateWindowStart >= 1000) { s.stateWindowStart = now; s.stateCount = 0; }
         if (++s.stateCount > 90) return;
+        // Host-authoritative weapons: only real SA weapon ids are relayed.
+        if (!isValidWeapon(st.weapon)) st.weapon = 0;
+        s.hasPos = true; s.lastPos = st.pos;
         broadcast(encodeStateS2C(uint8_t(slot), st), false, slot);
         relayed_++;
         break;
@@ -221,6 +228,8 @@ void Server::onReceive(ENetPeer* peer, const uint8_t* data, size_t len) {
         broadcast(encodeChatS2C(uint8_t(slot), text), true, -1);
         break;
     }
+    case MsgType::DamageC2S: handleDamage(slot, data, len); break;
+    case MsgType::WorldC2S: handleWorld(slot, data, len); break;
     default: break;
     }
 }
@@ -235,6 +244,52 @@ void Server::onDisconnect(ENetPeer* peer, bool graceful) {
     broadcast(encode(lm), true, -1);
     LOGI("Servidor: '%s' %s", nick.c_str(), leaveReasonPtBr(lm.reason));
     broadcastSystem(nick + " " + leaveReasonPtBr(lm.reason));
+    updateAuthority();
+}
+
+void Server::updateAuthority() {
+    uint8_t a = 0xFF;
+    for (int i = 0; i < LBN_MAX_PLAYERS; ++i) if (slots_[i].used) { a = uint8_t(i); break; }
+    if (a == authority_) return;
+    authority_ = a;
+    if (a == 0xFF) { haveWorld_ = false; return; }
+    LOGI("Servidor: '%s' (id %u) decide hora, clima, procurado e regras (autoridade)", slots_[a].nick.c_str(), unsigned(a));
+    SessionMsg sm; sm.authorityId = a;
+    broadcast(encode(sm), true, -1);
+}
+
+void Server::handleDamage(int slot, const uint8_t* data, size_t len) {
+    DamageMsg d;
+    if (!decodeDamageC2S(data, len, d)) return;
+    Slot& s = slots_[slot];
+    auto drop = [&](const char* why) {
+        damageDropped_++;
+        LOGI("Servidor: dano de '%s' descartado (%s)", s.nick.c_str(), why);
+    };
+    if (d.peer >= LBN_MAX_PLAYERS || !slots_[d.peer].used || d.peer == slot) { drop("alvo invalido"); return; }
+    if (!(haveWorld_ && (world_.flags & WorldState::PvP))) { drop("PvP desligado pelo host"); return; }
+    if (d.amountX10 == 0 || d.amountX10 > 2000) { drop("valor invalido"); return; }
+    uint32_t now = nowMs();
+    if (now - s.damageWindowStart >= 1000) { s.damageWindowStart = now; s.damageCount = 0; }
+    if (++s.damageCount > 30) { drop("excesso de mensagens"); return; }
+    const Slot& t = slots_[d.peer];
+    if (s.hasPos && t.hasPos && (s.lastPos - t.lastPos).length() > 350.f) { drop("longe demais"); return; }
+    DamageMsg out; out.peer = uint8_t(slot); out.amountX10 = d.amountX10; out.weapon = isValidWeapon(d.weapon) ? d.weapon : 0;
+    sendTo(t.peer, encodeDamageS2C(out), true);
+    damageRelayed_++;
+    LOGI("Servidor: '%s' acertou '%s': %.1f de dano (%s)", s.nick.c_str(), t.nick.c_str(), d.amountX10 / 10.0,
+         weaponNamePtBr(out.weapon));
+}
+
+void Server::handleWorld(int slot, const uint8_t* data, size_t len) {
+    WorldState w;
+    if (!decodeWorldC2S(data, len, w)) return;
+    if (slot != authority_) return; // only the host decides the world
+    bool rulesChanged = !haveWorld_ || (w.flags & WorldState::PvP) != (world_.flags & WorldState::PvP);
+    world_ = w; haveWorld_ = true;
+    if (rulesChanged) LOGI("Servidor: PvP %s (definido pelo host)", (w.flags & WorldState::PvP) ? "LIGADO" : "desligado");
+    WorldS2CMsg m; m.authorityId = uint8_t(slot); m.w = w;
+    broadcast(encode(m), true, slot);
 }
 
 void Server::broadcast(const std::vector<uint8_t>& data, bool reliable, int exceptId) {

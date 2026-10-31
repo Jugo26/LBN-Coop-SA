@@ -23,6 +23,12 @@ enum class MsgType : uint8_t {
     ChatC2S      = 8,  // C->S
     ChatS2C      = 9,  // S->C
     Pings        = 10, // S->C
+    // --- protocol 3 (stage 2: world sync) ---
+    DamageC2S    = 11, // C->S  "I hit player X"           (shooter-side hit detection)
+    DamageS2C    = 12, // S->C  "player Y hit you"          (forwarded only if the host allows PvP)
+    WorldC2S     = 13, // C->S  clock/weather/wanted/rules  (accepted only from the authority = host)
+    WorldS2C     = 14, // S->C  relayed world state + who the authority is
+    Session      = 15, // S->C  authority id (sent on join and whenever it changes)
 };
 
 enum class RejectReason : uint8_t { None = 0, BadVersion = 1, ServerFull = 2, BadName = 3, BadMessage = 4 };
@@ -89,6 +95,8 @@ struct PlayerState {
     MoveAnim anim = MoveAnim::Idle;
     uint8_t health = 100;
     uint8_t armour = 0;
+    uint8_t weapon = 0;      // eWeaponType held (0 = fists); server replaces invalid ids by 0
+    uint8_t wanted = 0;      // local wanted level 0..6 (the authority merges it)
     // valid when InVehicle:
     uint8_t seat = 0;        // 0 = driver, 1.. = passenger seat index + 1
     // valid when InVehicle && !RemoteVehicle:
@@ -105,6 +113,29 @@ struct ChatMsg {
     std::string text;
 };
 
+struct DamageMsg {
+    uint8_t peer = 0;        // C2S: target id; S2C: attacker id
+    uint16_t amountX10 = 0;  // health points * 10 (max 2000 = 200 HP)
+    uint8_t weapon = 0;
+};
+
+struct WorldState {
+    enum Flags : uint8_t {
+        PvP = 1 << 0,            // players can damage each other
+        ForceDensity = 1 << 1,   // clients apply the host's traffic/ped density multipliers
+        SyncClock = 1 << 2,
+        SyncWeather = 1 << 3,
+        SyncWanted = 1 << 4,
+    };
+    uint8_t hour = 12, minute = 0;
+    int16_t weather = 0;         // CWeather::NewWeatherType of the host
+    uint8_t wanted = 0;          // group wanted level decided by the host
+    uint8_t flags = SyncClock | SyncWeather | SyncWanted;
+    uint8_t carDensityX100 = 100, pedDensityX100 = 100;
+};
+struct WorldS2CMsg { uint8_t authorityId = 0xFF; WorldState w; };
+struct SessionMsg { uint8_t authorityId = 0xFF; };
+
 struct PingEntry { uint8_t id; uint16_t pingMs; };
 struct PingsMsg { std::vector<PingEntry> entries; };
 
@@ -119,6 +150,11 @@ std::vector<uint8_t> encodeStateS2C(uint8_t id, const PlayerState& s);
 std::vector<uint8_t> encodeChatC2S(const std::string& text);
 std::vector<uint8_t> encodeChatS2C(uint8_t from, const std::string& text);
 std::vector<uint8_t> encode(const PingsMsg& m);
+std::vector<uint8_t> encodeDamageC2S(const DamageMsg& m);
+std::vector<uint8_t> encodeDamageS2C(const DamageMsg& m);
+std::vector<uint8_t> encodeWorldC2S(const WorldState& w);
+std::vector<uint8_t> encode(const WorldS2CMsg& m);
+std::vector<uint8_t> encode(const SessionMsg& m);
 
 // --- Decoding --- (return false on malformed input)
 bool peekType(const uint8_t* p, size_t n, MsgType& out);
@@ -132,6 +168,11 @@ bool decodeStateS2C(const uint8_t* p, size_t n, uint8_t& id, PlayerState& s);
 bool decodeChatC2S(const uint8_t* p, size_t n, std::string& text);
 bool decodeChatS2C(const uint8_t* p, size_t n, ChatMsg& m);
 bool decode(const uint8_t* p, size_t n, PingsMsg& m);
+bool decodeDamageC2S(const uint8_t* p, size_t n, DamageMsg& m);
+bool decodeDamageS2C(const uint8_t* p, size_t n, DamageMsg& m);
+bool decodeWorldC2S(const uint8_t* p, size_t n, WorldState& w);
+bool decode(const uint8_t* p, size_t n, WorldS2CMsg& m);
+bool decode(const uint8_t* p, size_t n, SessionMsg& m);
 
 // Validation helpers (used by server and client to reject garbage).
 bool isFiniteVec(const Vec3& v);
@@ -139,6 +180,10 @@ bool isSaneState(const PlayerState& s);
 bool isValidPedSkin(uint16_t model);
 bool isValidVehicleModel(uint16_t model);
 bool isSpawnableVehicleModel(uint16_t model); // excludes trains/trailers that CREATE_CAR can't make
+bool isValidWeapon(uint8_t weaponType);       // 0..46 except the unused 19-21
+int weaponModel(uint8_t weaponType);          // model id to load for GIVE_WEAPON_TO_CHAR; -1 = none needed/unknown
+const char* weaponNamePtBr(uint8_t weaponType);
+bool isSaneWorld(const WorldState& w);
 
 const char* rejectReasonPtBr(RejectReason r);
 // pt-BR detail for a mod-version mismatch, e.g. "host v0.1.0, voce v0.0.9 - ...".

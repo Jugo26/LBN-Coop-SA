@@ -25,6 +25,9 @@ void RemotePlayer::pushState(const PlayerState& s, uint32_t recvMs) {
     interp_.push(s, recvMs);
     lastRecv_ = recvMs;
     health_ = s.health;
+    armour_ = s.armour;
+    weaponState_ = lbn::isValidWeapon(s.weapon) ? s.weapon : 0;
+    wanted_ = s.wanted;
 }
 
 void* RemotePlayer::ped() const { return sa::pedFromHandle(pedHandle_); }
@@ -60,10 +63,15 @@ bool RemotePlayer::ensurePed(const Vec3& pos) {
         return false;
     }
     lastCreateFailMs_ = 0;
-    // Stage 1: remote avatars are invulnerable, not targetable and keep their place.
-    scm::Call(scm::SET_CHAR_PROOFS).i(pedHandle_).i(1).i(1).i(1).i(1).i(1).run();
-    scm::Call(scm::SET_CHAR_NEVER_TARGETTED).i(pedHandle_).i(1).run();
+    weaponApplied_ = -1;
+    combatMode_ = -1;
+    // Proofs/targetting depend on the host's PvP rule (applyCombatMode); health is kept high and every
+    // drop is reported to the owner as a hit (the owner's game applies the real damage).
+    scm::Call(scm::SET_CHAR_HEALTH).i(pedHandle_).i(int(kAvatarHealth)).run();
+    scm::Call(scm::SET_CHAR_ONLY_DAMAGED_BY_PLAYER).i(pedHandle_).i(1).run();
+    scm::Call(scm::SET_CHAR_SUFFERS_CRITICAL_HITS).i(pedHandle_).i(0).run();
     scm::Call(scm::SET_CHAR_CANT_BE_DRAGGED_OUT).i(pedHandle_).i(1).run();
+    applyCombatMode();
     scm::Call(scm::SET_CHAR_DROPS_WEAPONS_WHEN_DEAD).i(pedHandle_).i(0).run();
     // v0.1.1: the avatar must never block, push or trap the local player (it is moved by the network
     // anyway). SET_CHAR_COLLISION is the game's own script command (CEntity::bUsesCollision).
@@ -109,6 +117,7 @@ bool RemotePlayer::ensureVehicle(const PlayerState& s, void* localVehicle) {
     }
     vehKey_ = s.veh.key;
     vehModel_ = s.veh.model;
+    vehExploded_ = false;
     scm::Call(scm::SET_CAR_PROOFS).i(vehHandle_).i(1).i(1).i(1).i(1).i(1).run();
     scm::Call(scm::SET_CAR_ENGINE_ON).i(vehHandle_).i(1).run();
     LOGI("Veiculo %u de %s criado (handle %d)", unsigned(vehModel_), nick_.c_str(), vehHandle_);
@@ -165,10 +174,21 @@ void RemotePlayer::applyAnim(MoveAnim a) {
     scm::Call(scm::TASK_PLAY_ANIM).i(pedHandle_).s(name).s("PED").f(4.0f).i(1).i(0).i(0).i(0).i(-1).run();
 }
 
-void RemotePlayer::enforceNoCollision(void* p) {
+void RemotePlayer::enforceNoCollision(void* p, void* localPed) {
     if (remoteOptions().pedCollision || !p) return;
+    // PvP needs collision for bullets to hit the avatar (CWorld::ProcessLineOfSight skips peds without it),
+    // but it is only enabled while the avatar is clearly away from the local player, so it still can't trap us.
+    bool want = false;
+    if (remoteOptions().pvp && localPed) {
+        Vec3 a, b;
+        if (sa::entityPos(p, a) && sa::entityPos(localPed, b)) {
+            float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+            want = dx * dx + dy * dy > kPvpCollisionMinDist * kPvpCollisionMinDist || dz * dz > 4.f;
+        }
+    }
+    bool has = (sa::at<uint32_t>(p, sa::off::entityFlags) & 1u) != 0;
     // The game turns collision back on when a ped leaves a vehicle; re-apply through the script command.
-    if (sa::at<uint32_t>(p, sa::off::entityFlags) & 1u) scm::Call(scm::SET_CHAR_COLLISION).i(pedHandle_).i(0).run();
+    if (has != want) scm::Call(scm::SET_CHAR_COLLISION).i(pedHandle_).i(want ? 1 : 0).run();
     // Without collision the ped never "touches" the ground; we place it on the sender's (grounded) position
     // every frame, so keep it flagged as standing and not in the air to avoid falling animations/gravity.
     uint32_t& pf = sa::at<uint32_t>(p, sa::off::pedFlags);
@@ -176,10 +196,75 @@ void RemotePlayer::enforceNoCollision(void* p) {
     sa::at<uint32_t>(p, sa::off::physicalFlags) &= ~(1u << 1);
 }
 
-void RemotePlayer::applyOnFoot(const PlayerState& s) {
+void RemotePlayer::applyCombatMode() {
+    int want = remoteOptions().pvp ? 1 : 0;
+    if (pedHandle_ < 0 || want == combatMode_) return;
+    combatMode_ = want;
+    // SET_CHAR_PROOFS char bullet fire explosion collision melee. Fire stays proof (a burning copy would
+    // desync from the owner); everything else can hurt the avatar when PvP is on.
+    if (want) scm::Call(scm::SET_CHAR_PROOFS).i(pedHandle_).i(0).i(1).i(0).i(0).i(0).run();
+    else scm::Call(scm::SET_CHAR_PROOFS).i(pedHandle_).i(1).i(1).i(1).i(1).i(1).run();
+    scm::Call(scm::SET_CHAR_NEVER_TARGETTED).i(pedHandle_).i(want ? 0 : 1).run();
+    LOGI("Boneco de %s: %s", nick_.c_str(), want ? "PvP ligado (pode ser ferido)" : "invulneravel (PvP desligado)");
+}
+
+void RemotePlayer::applyWeapon() {
+    int w = weaponState_;
+    if (pedHandle_ < 0 || w == weaponApplied_) return;
+    uint32_t now = sa::gameTimeMs();
+    if (lastWeaponFailMs_ && now - lastWeaponFailMs_ < kCreateRetryMs) return;
+    int model = lbn::weaponModel(uint8_t(w));
+    if (w != 0 && model > 0 && !scm::loadModelNow(model)) {
+        LOGW("Nao consegui carregar o modelo da arma %d (%s) para %s", w, lbn::weaponNamePtBr(uint8_t(w)), nick_.c_str());
+        lastWeaponFailMs_ = now ? now : 1;
+        return;
+    }
+    lastWeaponFailMs_ = 0;
+    scm::Call(scm::REMOVE_ALL_CHAR_WEAPONS).i(pedHandle_).run();
+    if (w != 0) {
+        scm::Call(scm::GIVE_WEAPON_TO_CHAR).i(pedHandle_).i(w).i(9999).run();
+        scm::Call(scm::SET_CURRENT_CHAR_WEAPON).i(pedHandle_).i(w).run();
+        if (model > 0) scm::releaseModel(model);
+    }
+    weaponApplied_ = w;
+    LOGI("Boneco de %s agora segura: %s", nick_.c_str(), lbn::weaponNamePtBr(uint8_t(w)));
+}
+
+void RemotePlayer::detectHits(void* p, const WorldLookup& world) {
+    if (!p) return;
+    float hp = sa::at<float>(p, sa::off::pedHealth);
+    if (hp >= kAvatarHealth - 0.5f) return;
+    float lost = kAvatarHealth - hp;
+    void* by = sa::at<void*>(p, sa::off::pedLastDamEntity);
+    bool mine = by && (by == world.localPed || (world.localVehicle && by == world.localVehicle));
+    if (remoteOptions().pvp && mine && remoteOptions().onHit) {
+        uint8_t wep = uint8_t(sa::at<uint32_t>(p, sa::off::pedLastDamWeapon) & 0xFF);
+        remoteOptions().onHit(id_, lost > 200.f ? 200.f : lost, lbn::isValidWeapon(wep) ? wep : 0);
+    }
+    // The real damage is applied by the owner's game; our copy always goes back to full health.
+    if (!sa::pedIsDead(p)) sa::at<float>(p, sa::off::pedHealth) = kAvatarHealth;
+}
+
+void RemotePlayer::syncVehicleHealth(void* v, const PlayerState& s) {
+    if (!v || vehExploded_) return;
+    if (s.veh.health <= 0.f) {
+        // The owner's car blew up: blow up our copy once (EXPLODE_CAR ignores proofs).
+        scm::Call(scm::EXPLODE_CAR).i(vehHandle_).run();
+        vehExploded_ = true;
+        LOGI("Veiculo de %s explodiu (dono)", nick_.c_str());
+        return;
+    }
+    // Below 250 a car catches fire and explodes on its own; keep our copy just above that so only the
+    // owner's game decides when it explodes (smoke/damage level still follow the owner).
+    float want = s.veh.health < 255.f ? 255.f : s.veh.health;
+    float& cur = sa::at<float>(v, sa::off::vehHealth);
+    if (cur - want > 25.f || want - cur > 25.f) cur = want;
+}
+
+void RemotePlayer::applyOnFoot(const PlayerState& s, void* localPed) {
     void* p = ped();
     if (!p || sa::pedVehicle(p)) return;
-    enforceNoCollision(p);
+    enforceNoCollision(p, localPed);
     sa::setPedHeading(p, s.heading);
     sa::setPhysicalTransform(p, s.pos, nullptr, nullptr, nullptr, s.vel);
     applyAnim(s.anim);
@@ -193,15 +278,27 @@ void RemotePlayer::update(uint32_t nowMs, const WorldLookup& world) {
     Vec3 spawnPos = (s.inVehicle() && !s.inRemoteVehicle()) ? s.veh.pos : s.pos;
     if (!ensurePed(spawnPos)) return;
     uint32_t gt = sa::gameTimeMs();
+    void* lp = world.localPed;
+
+    // Stage 2: damage, weapon in hand.
+    detectHits(ped(), world);
+    if (sa::pedIsDead(ped())) {
+        // Our copy died (e.g. huge explosion): recreate it next frame at the owner's position.
+        LOGI("Boneco de %s morreu localmente; recriando", nick_.c_str());
+        destroyEntities(world.localVehicle);
+        return;
+    }
+    applyCombatMode();
+    applyWeapon();
 
     if (!s.inVehicle()) {
         warpOut(s.pos, gt);
-        applyOnFoot(s);
+        applyOnFoot(s, lp);
         return;
     }
 
     if (!s.inRemoteVehicle()) {
-        if (!ensureVehicle(s, world.localVehicle)) { applyOnFoot(s); return; }
+        if (!ensureVehicle(s, world.localVehicle)) { applyOnFoot(s, lp); return; }
         void* v = vehicle();
         // The remote owns this car: drive its transform unless the local player took the wheel.
         bool localDrives = (v == world.localVehicle) && sa::pedSeat(world.localPed, v) == 0;
@@ -209,6 +306,7 @@ void RemotePlayer::update(uint32_t nowMs, const WorldLookup& world) {
             Vec3 rt, fw, up;
             lbn::axesFromQuat(s.veh.rot, rt, fw, up);
             sa::setPhysicalTransform(v, s.veh.pos, &rt, &fw, &up, s.veh.vel);
+            syncVehicleHealth(v, s);
         }
         if (s.veh.color1 != vehColor1_ || s.veh.color2 != vehColor2_) {
             scm::Call(scm::CHANGE_CAR_COLOUR).i(vehHandle_).i(s.veh.color1).i(s.veh.color2).run();
@@ -222,7 +320,7 @@ void RemotePlayer::update(uint32_t nowMs, const WorldLookup& world) {
     void* target = nullptr;
     if (s.vehicleOwnerId == world.selfId) target = world.localVehicle;
     else if (world.vehicleOfPlayer) target = world.vehicleOfPlayer(s.vehicleOwnerId, world.ctx);
-    if (!target) { warpOut(s.pos, gt); applyOnFoot(s); return; }
+    if (!target) { warpOut(s.pos, gt); applyOnFoot(s, lp); return; }
     int h = sa::vehicleRef(target);
     if (h >= 0) warpInto(target, h, s.seat, gt);
 }

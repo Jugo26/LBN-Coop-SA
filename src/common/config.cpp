@@ -114,6 +114,14 @@ CoopConfig configFromIni(const IniFile& ini, std::string* warnings) {
     c.serverName = ini.get(S, "ServerName", c.serverName);
 
     const char* K = "Hotkeys";
+    const char* W = "Mundo";
+    c.pvp = ini.getBool(W, "PvP", c.pvp);
+    c.syncClock = ini.getBool(W, "SyncClock", c.syncClock);
+    c.syncWeather = ini.getBool(W, "SyncWeather", c.syncWeather);
+    c.syncWanted = ini.getBool(W, "SyncWanted", c.syncWanted);
+    c.trafficDensityPct = std::clamp(ini.getInt(W, "TrafficDensity", c.trafficDensityPct), 0, 200);
+    c.pedDensityPct = std::clamp(ini.getInt(W, "PedDensity", c.pedDensityPct), 0, 200);
+    c.removeDuplicateCars = ini.getBool(W, "RemoveDuplicateCars", c.removeDuplicateCars);
     c.keyMenu = ini.getInt(K, "Menu", c.keyMenu);
     c.keyStart = ini.getInt(K, "Start", c.keyStart);
     c.keyToggleMode = ini.getInt(K, "ToggleMode", c.keyToggleMode);
@@ -129,7 +137,7 @@ CoopConfig configFromIni(const IniFile& ini, std::string* warnings) {
 
 std::string defaultIniText() {
     return
-        "; LBN Coop SA - configuracao (etapa 1)\r\n"
+        "; LBN Coop SA - configuracao (etapa 2)\r\n"
         "; Salve este arquivo como UTF-8 sem BOM ou ANSI. Linhas com ';' sao comentarios.\r\n"
         "[LbnCoopSA]\r\n"
         "; Seu apelido (1 a 24 caracteres, sem acentos de preferencia)\r\n"
@@ -164,7 +172,23 @@ std::string defaultIniText() {
         "Disconnect=0x79\r\n"
         "; F6 com o menu (F8) aberto = soltar o boneco (mesmo que /soltar no chat)\r\n"
         "Unstuck=0x75\r\n"
-        "Chat=T\r\n";
+        "Chat=T\r\n"
+        "\r\n"
+        "[Mundo]\r\n"
+        "; Vale o ini do HOST: os amigos seguem as regras, a hora, o clima e o nivel de procurado do host.\r\n"
+        "; 1 = jogadores podem se ferir (tiro, soco, atropelar) | 0 = ninguem fere ninguem\r\n"
+        "PvP=1\r\n"
+        "; 1 = todos usam a hora do jogo do host\r\n"
+        "SyncClock=1\r\n"
+        "; 1 = todos usam o clima do host\r\n"
+        "SyncWeather=1\r\n"
+        "; 1 = nivel de procurado (estrelas) compartilhado, decidido pelo host\r\n"
+        "SyncWanted=1\r\n"
+        "; Densidade de transito e pedestres em % (0-200). 100 = normal do jogo (nao mexe em nada).\r\n"
+        "TrafficDensity=100\r\n"
+        "PedDensity=100\r\n"
+        "; (vale para cada um) 1 = apaga a SUA copia vazia de um carro estacionado/de transito que um amigo pegou\r\n"
+        "RemoveDuplicateCars=1\r\n";
 }
 
 std::string latin1ToUtf8(const std::string& in) {

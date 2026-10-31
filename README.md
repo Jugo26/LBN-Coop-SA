@@ -1,4 +1,4 @@
-# LBN Coop SA (etapa 1, v0.1.1)
+# LBN Coop SA (etapa 2, v0.1.2)
 
 Mod cooperativo **original** para GTA San Andreas 1.0 US (gta_sa.exe de 14.383.616 bytes, Windows, 32 bits).
 Não contém código de SACoop/CoopAndreas/SA:COOP.
@@ -30,12 +30,23 @@ jogo original (1.0 US). Host e cliente precisam da mesma versão do mod: a conex
 
 ## Arquitetura (resumo)
 
-- **Rede**: ENet/UDP, porta 7810, 2 canais (0 confiável: controle/chat; 1 não-confiável sequenciado: estado 20 Hz).
+- **Rede**: ENet/UDP, porta 7810, 2 canais (0 confiável: controle/chat/mundo/dano; 1 não-confiável sequenciado: estado 30 Hz).
   Servidor relay autoritativo para ids/nomes; até 5 jogadores. O host roda o servidor numa thread dentro do jogo e
   conecta em 127.0.0.1. O cliente roda numa thread própria (`AsyncClient`), então a conexão sobrevive ao menu de pausa.
 - **Estado do jogador**: posição, velocidade, heading, animação (parado/andar/correr/sprint), vida/colete; no veículo:
   chave do veículo, modelo, posição, quaternion (4×int16), velocidade, cores, vida, banco. Passageiro em carro de outro
   jogador envia só "dono + banco".
+- **Mundo (etapa 2, protocolo 3)**: o servidor elege a *autoridade* (menor id conectado = o host embutido) e avisa
+  todos (`Session`). Só a autoridade pode mandar `WorldC2S` (hora, clima `CWeather::NewWeatherType`, nível de procurado
+  do grupo, regras: PvP, sync de hora/clima/procurado, densidades); o servidor guarda o último e manda para quem entra.
+  Estado do jogador ganhou `weapon` (o servidor troca ids inválidos por 0) e `wanted`; a autoridade sobe o próprio nível
+  quando alguém sobe o seu, e os outros adotam o nível do host. Dano: o jogo de quem atirou detecta a queda de vida do
+  avatar (avatar fica com 1000 de vida, `m_pLastEntityDamage` = jogador local) e manda `DamageC2S`; o servidor só
+  repassa (`DamageS2C`, só para o alvo) se o host ligou PvP, com limite de taxa/valor/distância; o alvo aplica no
+  colete e depois na vida (`SET_CHAR_HEALTH`). Com PvP o avatar só tem colisão a mais de 1,6 m do jogador local (os tiros
+  usam `ProcessLineOfSight`, que ignora peds sem colisão). Carros: vida/explosão seguem o dono; cópias vazias
+  estacionadas/de trânsito (`m_nCreatedBy` 1/3) do mesmo modelo a até 5 m do carro de um amigo são apagadas.
+  Opções na seção `[Mundo]` do ini (vale a do host).
 - **Interpolação**: buffer de snapshots com relógio do remetente (offset estimado pelo pacote menos atrasado),
   Hermite cúbico (posição+velocidade), slerp (rotação), extrapolação limitada a 250 ms, *snap* em teletransporte ou
   troca de veículo.
@@ -77,18 +88,20 @@ Opções: `--sem-atualizar`, e para testes `--nao-abrir-jogo`, `--sem-pausa`, `-
 
 ## Testes
 
-- `build-native/lbn_tests` — 45 testes (protocolo, fuzz, interpolação, ini, rede real em loopback, timeout, servidor cheio,
-  versão de protocolo/mod errada, nick duplicado, núcleo do atualizador (SHA-256, versão, JSON, caminhos), cliente assíncrono sobrevivendo à "pausa").
+- `build-native/lbn_tests` — 54 testes (protocolo v3 com arma/procurado/dano/mundo, fuzz, interpolação, ini, rede real em loopback, timeout, servidor cheio,
+  versão de protocolo/mod errada, nick duplicado, autoridade do mundo/PvP/dano/armas inválidas em loopback, seção `[Mundo]` do ini, núcleo do atualizador (SHA-256, versão, JSON, caminhos), cliente assíncrono sobrevivendo à "pausa").
 - `build-win32/lbn_tests.exe` — os mesmos testes, binário Windows, sob Wine.
 - `fake_game_harness.exe` — carrega o `.asi` num espaço de endereços simulado do GTA SA 1.0 US e confere hooks,
-  bytecode SCM (assinaturas conferidas com a biblioteca do Sanny Builder), criação/warp de avatar e carro, sessão host
-  com um cliente de rede real, shutdown.
+  bytecode SCM (assinaturas conferidas com a biblioteca do Sanny Builder), criação/warp de avatar e carro, colisão do avatar, `/soltar`, arma na mão, prova PvP, dano nos dois sentidos,
+  procurado, hora/clima enviados pelo host, vida/explosão do carro, remoção do carro duplicado no pool de veículos
+  falso, sessão host com um cliente de rede real, shutdown.
 - `tests/integration.sh` — servidor `.exe` (Wine) + cliente `.exe` (Wine) + cliente Linux.
 - `tests/launcher_wine_test.sh` — iniciador sob Wine contra um servidor HTTPS local que imita o GitHub (atualização,
   já atualizado, hash errado, limite da API, JSON inválido, falha no meio com restauração do backup, `dinput8.dll` de
   terceiros, `.asi` em `scripts\`, sem rede, sem `gta_sa.exe`), com um `gta_sa.exe` falso. Usa o build de teste
   `lbn_launcher_testtls.exe` (aceita o certificado local; não vai no `dist/`).
 - `tests/launcher_real_test.sh` — o `LbnCoopSA-Iniciar.exe` do `dist/` sob Wine contra a release REAL do GitHub
-  (atualizar de 0.0.9, já atualizado, e offline de verdade com `unshare -rn`).
+  (atualizar a partir da release anterior com o próprio iniciador dela, de 0.0.9, já atualizado, e offline de verdade
+  com `unshare -rn`).
 
 **Nada disso substitui o teste dentro do GTA SA real**, que ainda não foi feito.

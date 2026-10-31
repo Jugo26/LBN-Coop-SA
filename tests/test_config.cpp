@@ -61,6 +61,7 @@ TEST(dist_ini_files_parse) {
         CHECK(c.port == 7810 && c.hostIp == "26.196.166.86");
         CHECK(c.keyStart == 0x76 && c.keyMenu == 0x77 && c.keyToggleMode == 0x78 && c.keyDisconnect == 0x79 && c.keyChat == 'T');
         CHECK(c.sendRateHz == 30 && c.interpDelayMs == 120 && !c.remotePedCollision && c.keyUnstuck == 0x75);
+        CHECK(ini.has("Mundo", "PvP") && c.pvp && c.syncClock && c.trafficDensityPct == 100 && c.removeDuplicateCars);
         if (std::string(rel).find("amigo") != std::string::npos) CHECK(c.mode == Mode::Join && c.nickname == "Amigo");
         else CHECK(c.mode == Mode::Host && c.nickname == "LBN");
     }
@@ -77,4 +78,20 @@ TEST(config_defaults_v011) {
     IniFile old; old.loadFromString("[LbnCoopSA]\nRemotePedCollision=1\n[Hotkeys]\nUnstuck=0x7A\n");
     CoopConfig o = configFromIni(old);
     CHECK(o.remotePedCollision && o.keyUnstuck == 0x7A);
+}
+
+TEST(config_mundo_v012) {
+    CoopConfig d;
+    CHECK(d.pvp && d.syncClock && d.syncWeather && d.syncWanted && d.removeDuplicateCars);
+    CHECK(d.trafficDensityPct == 100 && d.pedDensityPct == 100);
+    // An old v0.1.1 ini (no [Mundo]) keeps working with the defaults (the updater never edits the ini).
+    IniFile old; old.loadFromString("[LbnCoopSA]\nNickname=LBN\n");
+    CoopConfig o = configFromIni(old);
+    CHECK(o.pvp && o.syncWanted && o.trafficDensityPct == 100);
+    IniFile ini; ini.loadFromString("[Mundo]\nPvP=0\nSyncClock=0\nSyncWeather=0\nSyncWanted=0\nTrafficDensity=500\nPedDensity=-3\nRemoveDuplicateCars=0\n");
+    CoopConfig c = configFromIni(ini);
+    CHECK(!c.pvp && !c.syncClock && !c.syncWeather && !c.syncWanted && !c.removeDuplicateCars);
+    CHECK(c.trafficDensityPct == 200 && c.pedDensityPct == 0);  // clamped
+    IniFile def; def.loadFromString(defaultIniText());
+    CHECK(def.has("Mundo", "PvP") && def.has("Mundo", "TrafficDensity") && def.has("Mundo", "RemoveDuplicateCars"));
 }

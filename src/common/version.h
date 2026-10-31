@@ -7,13 +7,13 @@
 // Keep in sync with dist/LbnCoopSA.version (scripts/build_all.sh writes it from this value).
 #define LBN_MOD_VERSION_MAJOR 0
 #define LBN_MOD_VERSION_MINOR 1
-#define LBN_MOD_VERSION_PATCH 1
-#define LBN_MOD_VERSION      "0.1.1"
+#define LBN_MOD_VERSION_PATCH 2
+#define LBN_MOD_VERSION      "0.1.2"
 #define LBN_COOP_VERSION     LBN_MOD_VERSION
 #define LBN_WIDEN2_(x) L##x
 #define LBN_WIDEN_(x) LBN_WIDEN2_(x)
 #define LBN_MOD_VERSION_W    LBN_WIDEN_(LBN_MOD_VERSION)
 #define LBN_DEFAULT_PORT     7810
 #define LBN_MAX_PLAYERS      5      // host + 4
-#define LBN_PROTOCOL_VERSION 2      // 2: Hello carries the mod version string
+#define LBN_PROTOCOL_VERSION 3      // 2: Hello carries the mod version; 3: stage 2 (weapon/wanted in state, damage, world)
 #define LBN_PROTOCOL_MAGIC   0x434E424Cu  // "LBNC" little-endian

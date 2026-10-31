@@ -57,6 +57,9 @@ int main(int argc, char** argv) {
             case lbn::ClientEvent::Pings:
                 for (auto& p : e.pings.entries) std::printf("[%s] PING id=%u %ums\n", nick.c_str(), p.id, p.pingMs);
                 break;
+            case lbn::ClientEvent::Damage: std::printf("[%s] DANO de %u: %.1f\n", nick.c_str(), e.id, e.damage.amountX10 / 10.0); break;
+            case lbn::ClientEvent::World: std::printf("[%s] MUNDO %02u:%02u clima %d\n", nick.c_str(), e.world.hour, e.world.minute, e.world.weather); break;
+            case lbn::ClientEvent::Session: std::printf("[%s] AUTORIDADE id=%u\n", nick.c_str(), e.id); break;
             }
         }
         if (failed) break;
