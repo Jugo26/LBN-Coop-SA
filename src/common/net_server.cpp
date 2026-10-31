@@ -146,9 +146,13 @@ void Server::handleHello(ENetPeer* peer, const uint8_t* data, size_t len) {
         LOGW("Servidor: conexao recusada (%s) %s", rejectReasonPtBr(why), detail.c_str());
     };
     if (!decode(data, len, h) || h.magic != LBN_PROTOCOL_MAGIC) { reject(RejectReason::BadMessage, ""); return; }
-    if (h.version != LBN_PROTOCOL_VERSION) {
-        reject(RejectReason::BadVersion, "servidor v" + std::to_string(LBN_PROTOCOL_VERSION) +
-                                         ", cliente v" + std::to_string(h.version));
+    if (h.version != LBN_PROTOCOL_VERSION || h.modVersion != LBN_MOD_VERSION) {
+        // Old protocol-1 clients send no mod version: report it as "antiga/desconhecida".
+        reject(RejectReason::BadVersion, modVersionMismatchPtBr(LBN_MOD_VERSION, h.modVersion));
+        // Tell the host (and anyone already in) why the friend could not join.
+        broadcastSystem("Recusado '" + sanitizeNick(h.nick) + "': versao do mod v" +
+                        (h.modVersion.empty() ? std::string("antiga") : h.modVersion.substr(0, 32)) +
+                        ", host v" LBN_MOD_VERSION ". Atualizem pelo LbnCoopSA-Iniciar.exe");
         return;
     }
     std::string nick = sanitizeNick(h.nick);

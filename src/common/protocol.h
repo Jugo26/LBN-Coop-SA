@@ -38,6 +38,7 @@ struct HelloMsg {
     uint16_t version = LBN_PROTOCOL_VERSION;
     std::string nick;
     uint16_t skin = 0;
+    std::string modVersion = LBN_MOD_VERSION;  // since protocol 2
 };
 
 struct WelcomeMsg {
@@ -139,6 +140,8 @@ bool isValidVehicleModel(uint16_t model);
 bool isSpawnableVehicleModel(uint16_t model); // excludes trains/trailers that CREATE_CAR can't make
 
 const char* rejectReasonPtBr(RejectReason r);
+// pt-BR detail for a mod-version mismatch, e.g. "host v0.1.0, voce v0.0.9 - ...".
+std::string modVersionMismatchPtBr(const std::string& hostVer, const std::string& clientVer);
 const char* leaveReasonPtBr(LeaveReason r);
 
 } // namespace lbn

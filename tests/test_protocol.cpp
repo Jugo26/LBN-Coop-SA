@@ -35,6 +35,7 @@ TEST(hello_welcome_roundtrip) {
     HelloMsg h2;
     CHECK(decode(b.data(), b.size(), h2));
     CHECK(h2.magic == LBN_PROTOCOL_MAGIC && h2.version == LBN_PROTOCOL_VERSION && h2.nick == "LBN" && h2.skin == 106);
+    CHECK(h2.modVersion == LBN_MOD_VERSION);
 
     WelcomeMsg w; w.yourId = 3; w.serverName = "Servidor";
     auto wb = encode(w);
@@ -134,4 +135,18 @@ TEST(sanity_checks) {
     bad = s; bad.flags = PlayerState::InVehicle | PlayerState::RemoteVehicle; bad.vehicleOwnerId = 9; CHECK(!isSaneState(bad));
     CHECK(isValidPedSkin(106)); CHECK(!isValidPedSkin(0)); CHECK(!isValidPedSkin(270)); CHECK(!isValidPedSkin(400));
     CHECK(isSpawnableVehicleModel(411)); CHECK(!isSpawnableVehicleModel(537)); CHECK(!isSpawnableVehicleModel(399));
+}
+
+TEST(hello_mod_version_roundtrip_and_message) {
+    HelloMsg h; h.nick = "Amigo"; h.modVersion = "0.0.9";
+    auto b = encode(h);
+    HelloMsg h2;
+    CHECK(decode(b.data(), b.size(), h2));
+    CHECK(h2.modVersion == "0.0.9");
+    std::string msg = modVersionMismatchPtBr("0.1.0", "0.0.9");
+    CHECK(msg.find("host v0.1.0") != std::string::npos && msg.find("voce v0.0.9") != std::string::npos);
+    CHECK(msg.find("LbnCoopSA-Iniciar.exe") != std::string::npos);
+    CHECK(msg.size() <= 128); // fits RejectMsg detail
+    CHECK(modVersionMismatchPtBr("0.1.0", "").size() <= 128);
+    CHECK(std::string(LBN_MOD_VERSION) == "0.1.0");
 }

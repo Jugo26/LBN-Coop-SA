@@ -1,9 +1,18 @@
-# LBN Coop SA (etapa 1)
+# LBN Coop SA (etapa 1, v0.1.0)
 
 Mod cooperativo **original** para GTA San Andreas 1.0 US (gta_sa.exe de 14.383.616 bytes, Windows, 32 bits).
 Não contém código de SACoop/CoopAndreas/SA:COOP.
 
 Instruções para jogadores: [`dist/LEIA-ME.txt`](dist/LEIA-ME.txt).
+
+## Download
+
+Baixe o `.zip` da [última versão](https://github.com/Jugo26/LBN-Coop-SA/releases/latest), extraia na pasta do
+`gta_sa.exe` e **abra o jogo pelo `LbnCoopSA-Iniciar.exe`**. O iniciador confere se há versão nova, atualiza sozinho
+(com backup em `LbnCoopSA_backup\<versão>\`, sem nunca sobrescrever o seu `LbnCoopSA.ini`) e abre o jogo.
+
+**Este repositório não contém nenhum arquivo do GTA San Andreas nem material da Rockstar Games.** Você precisa ter o
+jogo original (1.0 US). Host e cliente precisam da mesma versão do mod: a conexão é recusada se forem diferentes.
 
 ## Estrutura
 
@@ -12,9 +21,11 @@ Instruções para jogadores: [`dist/LEIA-ME.txt`](dist/LEIA-ME.txt).
 | `src/common/` | Código independente do jogo (compila em Linux e Windows): protocolo binário, interpolação, ini, log, servidor e cliente ENet |
 | `src/plugin/` | ASI (`LbnCoopSA.asi`): hooks por *call-site*, executor de comandos SCM, avatares remotos, overlay (CFont), chat/teclas (subclass da janela) |
 | `src/server/` | Servidor dedicado (`LbnCoopSA-Server`) |
+| `src/launcher/` | Iniciador/atualizador `LbnCoopSA-Iniciar.exe` (WinHTTP + miniz, sem DLLs extras) e núcleo testável (versão, SHA-256, JSON, regras de arquivos) |
 | `src/tools/` | Cliente de teste sem jogo (`lbn_testclient` → `LbnCoopSA-TesteRede.exe`) |
 | `tests/` | Testes unitários + loopback UDP, harness de "jogo falso" (Windows/Wine), script de integração |
 | `third_party/enet/` | ENet 1.3.18 (MIT) |
+| `third_party/miniz/` | miniz 3.0.2 (MIT), só leitura de .zip no iniciador |
 | `dist/` | Pacote final |
 
 ## Arquitetura (resumo)
@@ -41,10 +52,33 @@ sudo sysctl -w vm.overcommit_memory=1   # só para o Wine nesta VM
 scripts/build_all.sh          # build nativo + testes, build win32, testes sob Wine, harness, integração, dist/
 ```
 
+## Versão e publicação
+
+- A versão fica em `src/common/version.h` (`LBN_MOD_VERSION`); o `scripts/build_all.sh` gera `dist/LbnCoopSA.version`.
+- O *handshake* manda a versão do mod; o servidor recusa cliente com versão diferente (mensagem em pt-BR no chat/log
+  dos dois lados).
+- `scripts/release.sh` compila tudo, gera `release/LbnCoopSA-vX.Y.Z.zip` + `.zip.sha256` e roda
+  `gh release create vX.Y.Z` (o iniciador procura exatamente esses dois arquivos na release mais recente).
+  Para publicar uma versão nova: altere a versão em `version.h`, faça commit/push e rode `scripts/release.sh`.
+
+## Iniciador (`LbnCoopSA-Iniciar.exe`)
+
+1. Lê `LbnCoopSA.version`; consulta `https://api.github.com/repos/Jugo26/LBN-Coop-SA/releases/latest` (timeout curto).
+2. Se a release for mais nova: baixa o `.zip` e o `.sha256`, confere o hash, confere o `LbnCoopSA.version` de dentro do zip.
+3. Copia os arquivos que vão mudar para `LbnCoopSA_backup\<versão antiga>\` (nunca apaga nada).
+4. Troca **só** arquivos do mod (lista fixa: `LbnCoopSA.asi`, `LbnCoopSA-Iniciar.exe`, `LbnCoopSA.version`,
+   `LEIA-ME.txt`, `SHA256SUMS.txt`, `extras\LbnCoopSA-*`, `licencas\*.txt`). `.ini` existente nunca é sobrescrito
+   (o novo vira `*-exemplo.ini`); `dinput8.dll` só é trocado se o hash bater com o `SHA256SUMS.txt` instalado; se o `.asi`
+   estiver em `scripts\`, é atualizado lá. Se algo falhar no meio, restaura do backup.
+5. Grava `LbnCoopSA-update.log` e abre `gta_sa.exe` da mesma pasta. Qualquer erro (offline, limite da API, hash errado)
+   => abre o jogo com a versão atual.
+
+Opções: `--sem-atualizar`, e para testes `--nao-abrir-jogo`, `--sem-pausa`, `--api-url=URL`, `--timeout-ms=N`.
+
 ## Testes
 
-- `build-native/lbn_tests` — 38 testes (protocolo, fuzz, interpolação, ini, rede real em loopback, timeout, servidor cheio,
-  versão errada, nick duplicado, cliente assíncrono sobrevivendo à "pausa").
+- `build-native/lbn_tests` — 45 testes (protocolo, fuzz, interpolação, ini, rede real em loopback, timeout, servidor cheio,
+  versão de protocolo/mod errada, nick duplicado, núcleo do atualizador (SHA-256, versão, JSON, caminhos), cliente assíncrono sobrevivendo à "pausa").
 - `build-win32/lbn_tests.exe` — os mesmos testes, binário Windows, sob Wine.
 - `fake_game_harness.exe` — carrega o `.asi` num espaço de endereços simulado do GTA SA 1.0 US e confere hooks,
   bytecode SCM (assinaturas conferidas com a biblioteca do Sanny Builder), criação/warp de avatar e carro, sessão host

@@ -95,6 +95,7 @@ bool begin(ByteReader& r, MsgType expected) {
 std::vector<uint8_t> encode(const HelloMsg& m) {
     ByteWriter w; w.u8(uint8_t(MsgType::Hello));
     w.u32(m.magic); w.u16(m.version); w.str(m.nick, kMaxNickLen); w.u16(m.skin);
+    w.str(m.modVersion, 32);
     return w.data();
 }
 std::vector<uint8_t> encode(const WelcomeMsg& m) {
@@ -155,6 +156,10 @@ bool decode(const uint8_t* p, size_t n, HelloMsg& m) {
     ByteReader r(p, n);
     if (!begin(r, MsgType::Hello)) return false;
     m.magic = r.u32(); m.version = r.u16(); m.nick = r.str(); m.skin = r.u16();
+    if (!r.ok()) return false;
+    // Protocol 1 clients had no mod version; leave it empty so the server reports the mismatch clearly.
+    m.modVersion.clear();
+    if (m.version >= 2) m.modVersion = r.str();
     return r.ok();
 }
 bool decode(const uint8_t* p, size_t n, WelcomeMsg& m) {
@@ -274,12 +279,17 @@ bool isSpawnableVehicleModel(uint16_t m) {
 
 const char* rejectReasonPtBr(RejectReason r) {
     switch (r) {
-    case RejectReason::BadVersion: return "versao do mod diferente";
+    case RejectReason::BadVersion: return "versao do mod diferente da do host";
     case RejectReason::ServerFull: return "servidor cheio";
     case RejectReason::BadName: return "nome invalido ou ja em uso";
     case RejectReason::BadMessage: return "mensagem invalida";
     default: return "motivo desconhecido";
     }
+}
+
+std::string modVersionMismatchPtBr(const std::string& hostVer, const std::string& clientVer) {
+    return "host v" + hostVer + ", voce v" + (clientVer.empty() ? std::string("antiga/desconhecida") : clientVer) +
+           ". Use a MESMA versao: abra o jogo pelo LbnCoopSA-Iniciar.exe";
 }
 
 const char* leaveReasonPtBr(LeaveReason r) {

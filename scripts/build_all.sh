@@ -37,10 +37,20 @@ fi
 echo "== Montando dist/ =="
 mkdir -p dist/extras dist/licencas
 cp build-win32/LbnCoopSA.asi dist/
+cp build-win32/LbnCoopSA-Iniciar.exe dist/
+# Version file read by the launcher; generated from src/common/version.h (single source of truth).
+VER="$(sed -n 's/^#define LBN_MOD_VERSION  *"\([0-9.]*\)".*/\1/p' src/common/version.h)"
+[ -n "$VER" ] || { echo "LBN_MOD_VERSION nao encontrado"; exit 1; }
+printf '%s\n' "$VER" > dist/LbnCoopSA.version
 cp build-win32/LbnCoopSA-Server.exe dist/extras/
 cp build-win32/lbn_testclient.exe dist/extras/LbnCoopSA-TesteRede.exe
 cp "$T/uasi/dinput8.dll" dist/dinput8.dll
 cp "$T/uasi_license.txt" dist/licencas/Ultimate-ASI-Loader-LICENSE.txt
 cp third_party/enet/LICENSE dist/licencas/ENet-LICENSE.txt
-(cd dist && sha256sum LbnCoopSA.asi dinput8.dll extras/*.exe > SHA256SUMS.txt)
+cp third_party/miniz/LICENSE dist/licencas/miniz-LICENSE.txt
+(cd dist && sha256sum LbnCoopSA.asi LbnCoopSA-Iniciar.exe dinput8.dll extras/*.exe > SHA256SUMS.txt)
+if [ -z "${SKIP_WINE:-}" ]; then
+  echo "== Iniciador/atualizador (Wine + servidor HTTPS local imitando o GitHub) =="
+  tests/launcher_wine_test.sh | grep -E "^==|FALHOU|LAUNCHER"
+fi
 echo "Pronto: $ROOT/dist"

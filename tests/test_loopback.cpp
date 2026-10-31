@@ -106,7 +106,7 @@ TEST(loopback_duplicate_nick_renamed) {
     srv.stop();
 }
 
-TEST(loopback_bad_version_rejected) {
+static bool helloRejectedAsBadVersion(HelloMsg hm, std::string* detailOut) {
     Server srv; ServerOptions o; o.port = ++g_port;
     CHECK(srv.start(o));
     // Raw ENet client sending a Hello with a wrong protocol version.
@@ -121,20 +121,44 @@ TEST(loopback_bad_version_rejected) {
         ENetEvent ev;
         while (enet_host_service(h, &ev, 1) > 0) {
             if (ev.type == ENET_EVENT_TYPE_CONNECT && !sent) {
-                HelloMsg hm; hm.version = 99; hm.nick = "Velho";
                 sendTo(p, encode(hm), true); sent = true;
             } else if (ev.type == ENET_EVENT_TYPE_RECEIVE) {
                 RejectMsg rm;
-                if (decode(ev.packet->data, ev.packet->dataLength, rm) && rm.reason == RejectReason::BadVersion) rejected = true;
+                if (decode(ev.packet->data, ev.packet->dataLength, rm) && rm.reason == RejectReason::BadVersion) {
+                    rejected = true; if (detailOut) *detailOut = rm.detail;
+                }
                 enet_packet_destroy(ev.packet);
             }
         }
     }
-    CHECK(rejected);
     enet_host_destroy(h);
     netShutdown();
     srv.stop();
+    return rejected;
 }
+
+TEST(loopback_bad_version_rejected) {
+    HelloMsg hm; hm.version = 99; hm.nick = "Velho";
+    CHECK(helloRejectedAsBadVersion(hm, nullptr));
+}
+
+TEST(loopback_mod_version_mismatch_rejected) {
+    // Same protocol, different mod version (e.g. friend did not update) -> must be refused.
+    HelloMsg hm; hm.nick = "Amigo"; hm.modVersion = "0.0.9";
+    std::string detail;
+    CHECK(helloRejectedAsBadVersion(hm, &detail));
+    CHECK(detail.find("host v" LBN_MOD_VERSION) != std::string::npos);
+    CHECK(detail.find("voce v0.0.9") != std::string::npos);
+}
+
+TEST(loopback_old_protocol1_client_rejected) {
+    HelloMsg hm; hm.version = 1; hm.nick = "Antigo";
+    std::string detail;
+    CHECK(helloRejectedAsBadVersion(hm, &detail));
+    CHECK(detail.find("antiga/desconhecida") != std::string::npos);
+}
+
+
 
 TEST(loopback_timeout_detected) {
     Server srv; ServerOptions o; o.port = ++g_port; o.timeoutMs = 1500;

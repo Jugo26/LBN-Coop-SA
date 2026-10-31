@@ -1,7 +1,11 @@
 ===========================================================================
- LBN Coop SA - Etapa 1 (versão 0.1.0-etapa1)
+ LBN Coop SA - Etapa 1 (versão 0.1.0)
  Mod cooperativo ORIGINAL para GTA San Andreas 1.0 US (PC, 32 bits)
 ===========================================================================
+
+*** ABRA O JOGO SEMPRE PELO LbnCoopSA-Iniciar.exe ***
+(na pasta do GTA). Ele confere se existe versão nova do mod, atualiza
+sozinho (com backup) e depois abre o gta_sa.exe. Detalhes na seção 2.1.
 
 !! AVISO HONESTO !!
 Esta etapa foi compilada e testada SEM o jogo. O que foi testado de verdade:
@@ -22,7 +26,10 @@ se algo der errado.
 - GTA San Andreas 1.0 US com gta_sa.exe de 14.383.616 bytes (o mod confere
   a versão; se for outra, ele se desativa e avisa).
 - Windows 10 ou 11.
-- Os DOIS com exatamente a mesma versão do LBN Coop SA.
+- Os DOIS com exatamente a mesma versão do LBN Coop SA. Se forem
+  diferentes, a conexão é recusada com a mensagem "versao do mod
+  diferente da do host (host v..., voce v...)". Para resolver, os dois
+  abrem o jogo pelo LbnCoopSA-Iniciar.exe (ele atualiza sozinho).
 - NÃO use junto com SA-MP/MTA (são outros multiplayers).
 - Radmin VPN instalado e os dois na mesma rede do Radmin.
 
@@ -30,9 +37,14 @@ se algo der errado.
 2) INSTALAÇÃO (fazer nos dois PCs)
 ---------------------------------------------------------------------------
 Copie para a pasta onde está o gta_sa.exe:
-    dinput8.dll       (Ultimate ASI Loader, carrega arquivos .asi)
-    LbnCoopSA.asi     (o mod)
-    LbnCoopSA.ini     (configuração)
+    LbnCoopSA-Iniciar.exe  (iniciador: atualiza o mod e abre o jogo)
+    LbnCoopSA.version      (versão instalada; usado pelo iniciador)
+    dinput8.dll            (Ultimate ASI Loader, carrega arquivos .asi)
+    LbnCoopSA.asi          (o mod)
+    LbnCoopSA.ini          (configuração)
+    SHA256SUMS.txt         (hashes dos arquivos do mod)
+Dica: crie um atalho do LbnCoopSA-Iniciar.exe na área de trabalho e
+use ele no lugar do atalho do GTA.
 
 ATENÇÃO com ASI loader duplicado:
 - Se você JÁ tem um ASI loader (ex.: CLEO 4 instala "vorbisFile.dll" com
@@ -41,8 +53,34 @@ ATENÇÃO com ASI loader duplicado:
 - Coloque o LbnCoopSA.asi em UM lugar só (pasta do jogo OU pasta scripts\),
   nunca nos dois. O .ini fica na mesma pasta do .asi.
 
-Para desinstalar: apague LbnCoopSA.asi, LbnCoopSA.ini, LbnCoopSA.log e o
-dinput8.dll (se foi você que copiou).
+Para desinstalar: apague LbnCoopSA.asi, LbnCoopSA.ini, LbnCoopSA.log,
+LbnCoopSA-Iniciar.exe, LbnCoopSA.version, LbnCoopSA-update.log, a pasta
+LbnCoopSA_backup e o dinput8.dll (se foi você que copiou).
+
+---------------------------------------------------------------------------
+2.1) COMO ABRIR O JOGO E ATUALIZAÇÃO AUTOMÁTICA
+---------------------------------------------------------------------------
+Abra o jogo pelo LbnCoopSA-Iniciar.exe (não pelo gta_sa.exe). Ele:
+  1. lê a versão instalada (LbnCoopSA.version);
+  2. pergunta ao GitHub (github.com/Jugo26/LBN-Coop-SA) qual é a última
+     versão publicada (espera no máximo alguns segundos);
+  3. se houver versão nova: baixa o .zip, confere o SHA-256, guarda os
+     arquivos antigos em LbnCoopSA_backup\<versão antiga>\ e troca SÓ
+     os arquivos do mod. Nada é apagado;
+  4. abre o gta_sa.exe da mesma pasta.
+Seu LbnCoopSA.ini NUNCA é sobrescrito: se a versão nova trouxer um .ini
+diferente, ele é salvo ao lado como LbnCoopSA-exemplo.ini para você
+comparar. O dinput8.dll só é trocado se for o que o mod instalou.
+Sem internet, GitHub fora do ar, limite de consultas do GitHub ou
+download corrompido: o iniciador anota o erro e abre o jogo com a versão
+que você já tem.
+Tudo fica anotado em LbnCoopSA-update.log (mande junto se der problema).
+Para voltar à versão anterior: copie os arquivos de
+LbnCoopSA_backup\<versão>\ de volta para a pasta do jogo.
+Opções (atalho ou Prompt de Comando): --sem-atualizar  (só abre o jogo).
+Outros parâmetros são repassados para o gta_sa.exe.
+Antivírus/SmartScreen podem estranhar um .exe novo que acessa a
+internet; se bloquear, libere o LbnCoopSA-Iniciar.exe.
 
 ---------------------------------------------------------------------------
 3) CONFIGURAÇÃO (LbnCoopSA.ini)
@@ -100,9 +138,9 @@ TESTE DE REDE SEM ABRIR O JOGO (opcional, recomendado na 1a vez):
 ---------------------------------------------------------------------------
 5) COMO JOGAR
 ---------------------------------------------------------------------------
-1. HOST abre o jogo, carrega o save e aperta F7 (ou usa AutoStart=1).
+1. HOST abre o jogo (pelo LbnCoopSA-Iniciar.exe), carrega o save e aperta F7 (ou usa AutoStart=1).
    Aparece "Servidor iniciado na porta UDP 7810".
-2. AMIGO abre o jogo, carrega o save e aperta F7.
+2. AMIGO abre o jogo (pelo LbnCoopSA-Iniciar.exe), carrega o save e aperta F7.
    Aparece "Conectado a 'LBN Coop SA'..." e "Amigo entrou no jogo".
 3. Cada um vê o outro como um boneco com o nome em cima. Ao entrar num
    carro, o mesmo modelo aparece no jogo do outro, com o boneco no banco
@@ -174,6 +212,8 @@ LBN Coop SA - código original. Não contém código de SACoop/CoopAndreas/
 SA:COOP. Componentes de terceiros (licenças na pasta licencas\):
 - ENet (Lee Salzman) - licença MIT - rede UDP.
 - Ultimate ASI Loader (ThirteenAG) - licença MIT - dinput8.dll.
+- miniz (Rich Geldreich, RAD Game Tools, Valve) - licença MIT - leitura
+  do .zip no LbnCoopSA-Iniciar.exe.
 - Runtime LLVM libc++/libunwind/compiler-rt (Apache 2.0 com exceção LLVM)
   e runtime mingw-w64, ligados estaticamente pelo compilador.
 - Endereços de memória do GTA SA 1.0 US conferidos com os cabeçalhos do

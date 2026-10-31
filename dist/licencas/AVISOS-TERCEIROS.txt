@@ -25,3 +25,8 @@ LBN Coop SA - avisos de terceiros / third-party notices
 6) Sanny Builder library (sa.json) - usada somente como referencia para conferir a assinatura
    (numero/ordem de parametros) dos comandos de script usados. Nao distribuida.
    https://github.com/sannybuilder/library
+
+7) miniz 3.0.2 - Copyright 2013-2014 RAD Game Tools and Valve Software,
+   Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC - MIT License
+   Ligado estaticamente em LbnCoopSA-Iniciar.exe (somente leitura de .zip). Texto: miniz-LICENSE.txt
+   https://github.com/richgel999/miniz
