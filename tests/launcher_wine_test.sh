@@ -12,6 +12,7 @@ unset DISPLAY
 W="$ROOT/build-launchertest"; rm -rf "$W"; mkdir -p "$W"; cd "$W"
 PORT=18443
 FAILS=0
+CUR="$(tr -d '\r\n' < "$ROOT/dist/LbnCoopSA.version")"   # installed version in the fake GTA folders
 ok()   { echo "  [ OK ] $*"; }
 bad()  { echo "  [FALHOU] $*"; FAILS=$((FAILS+1)); }
 check(){ if eval "$1"; then ok "$2"; else bad "$2"; fi; }
@@ -55,7 +56,7 @@ SRVPID=$!
 trap 'kill $SRVPID 2>/dev/null' EXIT
 sleep 1.5
 
-# fresh "GTA folder" with v0.1.0 installed and a customised user ini
+# fresh "GTA folder" with v$CUR installed and a customised user ini
 mkgame() {
   rm -rf "$1"; mkdir -p "$1"; cp -r "$ROOT/dist/." "$1/"
   cp "$ROOT/build-win32/lbn_launcher_testtls.exe" "$1/LbnCoopSA-Iniciar.exe"
@@ -68,14 +69,14 @@ run() { local d="$1"; shift; (cd "$d" && timeout 120 "$WINE" ./LbnCoopSA-Iniciar
 unchanged() { (cd "$1" && sha256sum -c --quiet ../"$1".before > /dev/null 2>&1); }
 API="--api-url=https://127.0.0.1:$PORT/api"
 
-echo "== A) atualizacao 0.1.0 -> 0.2.0 (servidor local imitando o GitHub) =="
+echo "== A) atualizacao $CUR -> 0.2.0 (servidor local imitando o GitHub) =="
 mkgame A; cp A/LbnCoopSA.asi asi.old; cp A/LbnCoopSA-Iniciar.exe launcher.old; cp A/LbnCoopSA.ini ini.user
 run A "$API/ok" --abc
 NEWASI="$(unzip -p srv/LbnCoopSA-v0.2.0.zip LbnCoopSA.asi | sha256sum | cut -d' ' -f1)"
 check '[ "$(tr -d "\r\n" < A/LbnCoopSA.version)" = 0.2.0 ]' "LbnCoopSA.version = 0.2.0"
 check '[ "$(sha256sum < A/LbnCoopSA.asi | cut -d" " -f1)" = "$NEWASI" ]' "LbnCoopSA.asi trocado pelo da v0.2.0"
-check 'cmp -s A/LbnCoopSA_backup/0.1.0/LbnCoopSA.asi asi.old' "backup do .asi antigo em LbnCoopSA_backup/0.1.0/"
-check 'cmp -s A/LbnCoopSA_backup/0.1.0/LbnCoopSA-Iniciar.exe launcher.old' "backup do iniciador antigo (que estava rodando)"
+check 'cmp -s A/LbnCoopSA_backup/$CUR/LbnCoopSA.asi asi.old' "backup do .asi antigo em LbnCoopSA_backup/$CUR/"
+check 'cmp -s A/LbnCoopSA_backup/$CUR/LbnCoopSA-Iniciar.exe launcher.old' "backup do iniciador antigo (que estava rodando)"
 check 'tail -c 11 A/LbnCoopSA-Iniciar.exe | grep -q LBN-v0.2.0' "iniciador substituido pela versao nova"
 check 'cmp -s A/LbnCoopSA.ini ini.user' "LbnCoopSA.ini do usuario NAO foi alterado"
 check 'grep -q NovaOpcao=1 A/LbnCoopSA-exemplo.ini' "ini novo salvo como LbnCoopSA-exemplo.ini"
@@ -114,7 +115,7 @@ echo "== E) falha no meio da troca -> desfaz pelo backup =="
 mkgame E; mkdir -p E/extras/LbnCoopSA-Server.exe.lbnnovo   # pasta no lugar do temporario: a gravacao falha
 run E "$API/ok"
 check 'grep -q "Desfazendo" E.out' "rollback iniciado"
-check '[ "$(tr -d "\r\n" < E/LbnCoopSA.version)" = 0.1.0 ]' "continua na v0.1.0"
+check '[ "$(tr -d "\r\n" < E/LbnCoopSA.version)" = "$CUR" ]' "continua na v$CUR"
 check '(cd E && grep -v -e LbnCoopSA-exemplo.ini ../E.before | sha256sum -c --quiet >/dev/null 2>&1)' "arquivos restaurados (identicos ao original)"
 check 'grep -q STUB E/gta_stub_ran.txt' "jogo aberto com a versao atual"
 

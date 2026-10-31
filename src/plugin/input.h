@@ -5,9 +5,9 @@
 
 namespace input {
 
-enum class Action { None, ToggleMenu, Start, ToggleMode, Disconnect, ChatOpened, ChatSubmit, ChatCancel };
+enum class Action { None, ToggleMenu, Start, ToggleMode, Disconnect, ChatOpened, ChatSubmit, ChatCancel, Unstuck };
 
-struct Keys { int menu, start, toggleMode, disconnect, chat; };
+struct Keys { int menu, start, toggleMode, disconnect, chat, unstuck; };
 
 // Install on the main thread once the game window exists. Returns true when installed.
 bool install(const Keys& keys);
@@ -24,5 +24,9 @@ void closeChat();
 std::vector<Action> drainActions();
 // Text submitted with Enter (valid right after a ChatSubmit action).
 std::string takeSubmitted();
+
+// Test harness only (enabled when the LBN_COOP_TEST environment variable is set): queue an action as if
+// its key had been pressed; for ChatSubmit, `text` is the submitted chat line.
+void injectForTest(Action a, const std::string& text);
 
 } // namespace input

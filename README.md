@@ -1,4 +1,4 @@
-# LBN Coop SA (etapa 1, v0.1.0)
+# LBN Coop SA (etapa 1, v0.1.1)
 
 Mod cooperativo **original** para GTA San Andreas 1.0 US (gta_sa.exe de 14.383.616 bytes, Windows, 32 bits).
 Não contém código de SACoop/CoopAndreas/SA:COOP.

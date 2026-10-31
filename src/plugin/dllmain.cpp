@@ -1,6 +1,14 @@
 // LBN Coop SA - ASI entry point (original code).
 #include <windows.h>
 #include "coop.h"
+#include "input.h"
+#include <string>
+
+// Used only by tests/fake_game_harness.cpp (no window there). Does nothing unless LBN_COOP_TEST is set.
+extern "C" __declspec(dllexport) void __cdecl LbnCoopSA_TestInject(int action, const char* text) {
+    if (!GetEnvironmentVariableA("LBN_COOP_TEST", nullptr, 0)) return;
+    input::injectForTest(static_cast<input::Action>(action), text ? std::string(text) : std::string());
+}
 
 extern "C" BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {

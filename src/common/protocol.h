@@ -45,6 +45,7 @@ struct WelcomeMsg {
     uint8_t yourId = 0;
     uint8_t maxPlayers = LBN_MAX_PLAYERS;
     std::string serverName;
+    std::string yourNick;   // nickname actually assigned (differs if ours was already taken)
 };
 
 struct RejectMsg {

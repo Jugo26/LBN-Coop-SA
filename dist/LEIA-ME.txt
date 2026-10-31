@@ -1,11 +1,21 @@
 ===========================================================================
- LBN Coop SA - Etapa 1 (versão 0.1.0)
+ LBN Coop SA - Etapa 1 (versão 0.1.1)
  Mod cooperativo ORIGINAL para GTA San Andreas 1.0 US (PC, 32 bits)
 ===========================================================================
 
 *** ABRA O JOGO SEMPRE PELO LbnCoopSA-Iniciar.exe ***
 (na pasta do GTA). Ele confere se existe versão nova do mod, atualiza
 sozinho (com backup) e depois abre o gta_sa.exe. Detalhes na seção 2.1.
+
+NOVIDADES DA v0.1.1
+- O boneco do outro jogador não tem mais colisão com você: não prende,
+  não empurra e não arrasta (no teste real o amigo ficou preso quando os
+  dois carregaram o save no mesmo lugar). Opção RemotePedCollision.
+- Comando /soltar (e F6 com o menu F8 aberto) para sair de um lugar onde
+  ficou preso.
+- Apelido repetido agora aparece no chat e no log.
+- Padrões novos: SendRate=30 e InterpDelayMs=120.
+A correção da colisão foi testada só no "jogo falso"; confirme no jogo.
 
 !! AVISO HONESTO !!
 Esta etapa foi compilada e testada SEM o jogo. O que foi testado de verdade:
@@ -101,8 +111,15 @@ Outras opções:
     Skin=106        modelo do seu boneco como os outros te veem (ID de ped
                     do SA, ex.: 105, 106, 107 = Grove). 0 (CJ) ainda não.
     AutoStart=1     hospeda/conecta sozinho quando o mapa carrega.
-    SendRate=20     pacotes de posicao por segundo.
-    InterpDelayMs=100  suavidade x atraso dos bonecos remotos.
+    SendRate=30     pacotes de posição por segundo (padrão 30).
+    InterpDelayMs=120  suavidade x atraso dos bonecos remotos (padrão 120).
+    RemotePedCollision=0  0 = o boneco do outro jogador NÃO tem colisão:
+                    nunca te prende, empurra ou arrasta (padrão).
+                    1 = com colisão (comportamento da v0.1.0).
+ATENÇÃO: a atualização automática NUNCA mexe no seu LbnCoopSA.ini. Se o
+seu ainda tem SendRate=20 / InterpDelayMs=100, troque para 30 / 120 (o
+modelo novo fica em LbnCoopSA-exemplo.ini) e acrescente
+RemotePedCollision=0 (se faltar, o mod já usa 0).
     TimeoutMs=10000 tempo sem resposta até o jogador "cair".
 
 ---------------------------------------------------------------------------
@@ -150,17 +167,25 @@ TESTE DE REDE SEM ABRIR O JOGO (opcional, recomendado na 1a vez):
 Teclas:
     F7   iniciar (hospedar ou conectar, conforme o Mode do .ini)
     F8   mostrar/esconder o menu (estado, jogadores, ping)
+    F6   (com o menu F8 aberto) soltar o seu boneco: igual ao /soltar
     F9   trocar o modo host/cliente (só com a sessão desligada)
     F10  sair da sessão
     T    abrir o chat; Enter envia; Esc cancela
-Comandos no chat: /ping  /jogadores  /sair
+Comandos no chat: /ping  /jogadores  /soltar  /sair
+    /soltar  se você ficar preso (em parede, carro ou no boneco do
+             outro), move o seu boneco uns 3 m para um lugar livre.
+             Fora de veículo; espere 2 s entre um uso e outro.
+Apelido repetido: se os dois usarem o mesmo Nickname, o segundo entra
+como "Nome_2" (aparece no chat e no LbnCoopSA.log). Cada um deve ter o
+seu próprio Nickname no LbnCoopSA.ini.
 
 Log: LbnCoopSA.log fica na pasta do gta_sa.exe (recriado a cada abertura).
 
 ---------------------------------------------------------------------------
 6) LIMITES CONHECIDOS DA ETAPA 1
 ---------------------------------------------------------------------------
-- Não testado no jogo real (ver aviso no topo).
+- No jogo real só foi confirmado (pelo LBN, via Radmin): conexão, ping
+  ~18 ms sem perda e criação do boneco remoto. O resto ainda não.
 - Cada um continua no SEU próprio mundo/save: trânsito, pedestres, polícia,
   missões, hora e clima NÃO são sincronizados ainda.
 - Bonecos e carros remotos são invencíveis e não podem ser mirados (dano,

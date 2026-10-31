@@ -60,8 +60,21 @@ TEST(dist_ini_files_parse) {
         CHECK(warn.empty());
         CHECK(c.port == 7810 && c.hostIp == "26.196.166.86");
         CHECK(c.keyStart == 0x76 && c.keyMenu == 0x77 && c.keyToggleMode == 0x78 && c.keyDisconnect == 0x79 && c.keyChat == 'T');
+        CHECK(c.sendRateHz == 30 && c.interpDelayMs == 120 && !c.remotePedCollision && c.keyUnstuck == 0x75);
         if (std::string(rel).find("amigo") != std::string::npos) CHECK(c.mode == Mode::Join && c.nickname == "Amigo");
         else CHECK(c.mode == Mode::Host && c.nickname == "LBN");
     }
 }
 #endif
+
+TEST(config_defaults_v011) {
+    CoopConfig d;
+    CHECK(d.sendRateHz == 30 && d.interpDelayMs == 120 && !d.remotePedCollision && d.keyUnstuck == 0x75);
+    IniFile ini; ini.loadFromString(defaultIniText());
+    std::string warn; CoopConfig c = configFromIni(ini, &warn);
+    CHECK(warn.empty());
+    CHECK(c.sendRateHz == 30 && c.interpDelayMs == 120 && !c.remotePedCollision && c.keyUnstuck == 0x75);
+    IniFile old; old.loadFromString("[LbnCoopSA]\nRemotePedCollision=1\n[Hotkeys]\nUnstuck=0x7A\n");
+    CoopConfig o = configFromIni(old);
+    CHECK(o.remotePedCollision && o.keyUnstuck == 0x7A);
+}

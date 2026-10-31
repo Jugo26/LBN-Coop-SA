@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "testfw.h"
 #include "../src/common/protocol.h"
 #include "../src/common/bytes.h"
@@ -137,6 +138,8 @@ TEST(sanity_checks) {
     CHECK(isSpawnableVehicleModel(411)); CHECK(!isSpawnableVehicleModel(537)); CHECK(!isSpawnableVehicleModel(399));
 }
 
+static bool parseVersionOk(const char* v) { int a, b, c; return std::sscanf(v, "%d.%d.%d", &a, &b, &c) == 3; }
+
 TEST(hello_mod_version_roundtrip_and_message) {
     HelloMsg h; h.nick = "Amigo"; h.modVersion = "0.0.9";
     auto b = encode(h);
@@ -148,5 +151,5 @@ TEST(hello_mod_version_roundtrip_and_message) {
     CHECK(msg.find("LbnCoopSA-Iniciar.exe") != std::string::npos);
     CHECK(msg.size() <= 128); // fits RejectMsg detail
     CHECK(modVersionMismatchPtBr("0.1.0", "").size() <= 128);
-    CHECK(std::string(LBN_MOD_VERSION) == "0.1.0");
+    CHECK(parseVersionOk(LBN_MOD_VERSION));
 }

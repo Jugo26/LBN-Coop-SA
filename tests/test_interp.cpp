@@ -1,5 +1,9 @@
 #include "testfw.h"
 #include "../src/common/interp.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <vector>
 
 using namespace lbn;
 
@@ -142,4 +146,76 @@ TEST(move_anim_mapping) {
     CHECK(moveAnimFromPedState(7, 0) == MoveAnim::Sprint);
     CHECK(moveAnimFromPedState(1, 0) == MoveAnim::Idle);
     CHECK(moveAnimFromPedState(0, 8) == MoveAnim::Sprint);
+}
+
+// v0.1.1 defaults (SendRate=30, InterpDelayMs=120) under a Radmin-like link: 18 ms average latency with
+// jitter, 3% packet loss, and a sender whose frames are not perfectly regular. Rendering at 60 fps must
+// stay close to the true path and never jump/snap between frames.
+namespace {
+struct SimResult { double maxErr = 0, maxStep = 0, avgErr = 0; int extrapolated = 0, frames = 0; };
+SimResult simulateLink(int sendHz, uint32_t delayMs, float speed, uint32_t seed) {
+    InterpConfig cfg; cfg.delayMs = delayMs;
+    Interpolator ip(cfg);
+    uint32_t rng = seed;
+    auto rnd = [&]() { rng = rng * 1664525u + 1013904223u; return (rng >> 8) / 16777216.0; };
+    auto truth = [&](double t) { // walk/sprint around a 15 m circle
+        double w = speed / 15.0;
+        return Vec3{float(15 * std::cos(w * t)), float(15 * std::sin(w * t)), 13.f};
+    };
+    auto truthVel = [&](double t) {
+        double w = speed / 15.0;
+        return Vec3{float(-15 * w * std::sin(w * t)), float(15 * w * std::cos(w * t)), 0.f};
+    };
+    struct InFlight { uint32_t arrive; PlayerState s; };
+    std::vector<InFlight> net;
+    const uint32_t senderBase = 500000, localBase = 9000;  // unrelated clocks
+    double nextSend = 0;
+    SimResult r; double sumErr = 0; Vec3 prev{}; bool havePrev = false;
+    for (uint32_t ms = 0; ms < 20000; ++ms) {
+        if (ms >= nextSend) {
+            double interval = 1000.0 / sendHz;
+            nextSend += interval * (0.85 + 0.3 * rnd()); // irregular game frames
+            double t = ms / 1000.0;
+            PlayerState s; s.timeMs = senderBase + ms; s.pos = truth(t); s.vel = truthVel(t);
+            if (rnd() > 0.03) net.push_back({ms + 12 + uint32_t(rnd() * 14) + (rnd() < 0.05 ? 40u : 0u), s});
+        }
+        for (size_t i = 0; i < net.size();) {
+            if (net[i].arrive <= ms) { ip.push(net[i].s, localBase + ms); net.erase(net.begin() + long(i)); }
+            else ++i;
+        }
+        if (ms % 16 == 0 && ms > 1500) {
+            InterpResult res = ip.sample(localBase + ms);
+            if (!res.valid) continue;
+            // Compare with where the sender was at the time being rendered.
+            double renderT = (int32_t(res.state.timeMs - senderBase)) / 1000.0;
+            if (res.extrapolated) { r.extrapolated++; renderT = (ip.clock().toSender(localBase + ms) - delayMs - senderBase) / 1000.0; }
+            double err = (res.state.pos - truth(renderT)).length();
+            r.maxErr = std::max(r.maxErr, err); sumErr += err; r.frames++;
+            if (havePrev) r.maxStep = std::max(r.maxStep, double((res.state.pos - prev).length()));
+            prev = res.state.pos; havePrev = true;
+        }
+    }
+    r.avgErr = r.frames ? sumErr / r.frames : 0;
+    return r;
+}
+}
+
+TEST(interp_defaults_30hz_120ms_no_snapping) {
+    for (float speed : {1.6f, 4.5f, 7.0f}) {           // walk, run, sprint (m/s)
+        for (uint32_t seed : {1u, 7u, 42u}) {
+            SimResult r = simulateLink(30, 120, speed, seed);
+            // Per 16 ms frame a sprinting ped moves ~0.11 m; anything well above that would be a visible snap.
+            double frameMove = speed * 0.016;
+            CHECK(r.maxStep < frameMove * 2.5 + 0.02);
+            CHECK(r.maxErr < 0.25);
+            CHECK(r.extrapolated < r.frames / 50);          // < 2% of frames outrun the buffer
+            if (speed == 7.0f && seed == 1u)
+                std::printf("    30Hz/120ms sprint: erro medio %.3f m, max %.3f m, maior passo %.3f m, extrapolados %d/%d\n",
+                            r.avgErr, r.maxErr, r.maxStep, r.extrapolated, r.frames);
+        }
+    }
+    // Old defaults for comparison (logged only): 20 Hz / 100 ms extrapolates more often on the same link.
+    SimResult old = simulateLink(20, 100, 7.0f, 1);
+    std::printf("    20Hz/100ms sprint: erro medio %.3f m, max %.3f m, maior passo %.3f m, extrapolados %d/%d\n",
+                old.avgErr, old.maxErr, old.maxStep, old.extrapolated, old.frames);
 }

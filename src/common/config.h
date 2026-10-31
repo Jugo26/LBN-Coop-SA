@@ -29,8 +29,9 @@ struct CoopConfig {
     uint16_t port = LBN_DEFAULT_PORT;
     uint16_t skin = 106;           // fam2 (Grove); 0 (CJ) not supported for remote peds yet
     bool autoStart = false;
-    int sendRateHz = 20;
-    int interpDelayMs = 100;
+    int sendRateHz = 30;
+    int interpDelayMs = 120;
+    bool remotePedCollision = false; // false = remote avatars never block/push the local player
     int timeoutMs = 10000;
     bool showNametags = true;
     float nametagDistance = 80.f;
@@ -41,6 +42,7 @@ struct CoopConfig {
     int keyToggleMode = 0x78;      // F9
     int keyDisconnect = 0x79;      // F10
     int keyChat = 'T';
+    int keyUnstuck = 0x75;         // F6 (works while the F8 menu is open) = /soltar
 };
 
 // Fills cfg from an ini file; returns a list of warnings (pt-BR) through `warnings`.

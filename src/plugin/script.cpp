@@ -57,6 +57,15 @@ bool Call::run() {
 }
 
 int32_t Call::local(int idx) const { return (idx >= 0 && idx < 8) ? locals_[idx] : 0; }
+float Call::localf(int idx) const { int32_t v = local(idx); float f; std::memcpy(&f, &v, 4); return f; }
+
+int playerCharHandle() {
+    Call c(GET_PLAYER_CHAR);
+    c.i(0).out(0);
+    c.run();
+    int h = c.local(0);
+    return sa::pedFromHandle(h) ? h : -1;
+}
 
 bool loadModelNow(int model) {
     Call(REQUEST_MODEL).i(model).run();

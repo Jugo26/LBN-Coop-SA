@@ -127,9 +127,11 @@ void Client::handlePacket(const uint8_t* data, size_t len) {
         selfId_ = w.yourId;
         serverName_ = w.serverName;
         status_ = Status::Connected;
-        ClientEvent e{ClientEvent::Connected}; e.id = w.yourId; e.text = w.serverName;
+        ClientEvent e{ClientEvent::Connected}; e.id = w.yourId; e.text = w.serverName; e.nick = w.yourNick;
         push(e);
-        LOGI("Cliente: conectado ao servidor '%s' (meu id %u)", w.serverName.c_str(), unsigned(w.yourId));
+        LOGI("Cliente: conectado ao servidor '%s' (meu id %u, apelido '%s')", w.serverName.c_str(), unsigned(w.yourId), w.yourNick.c_str());
+        if (!w.yourNick.empty() && w.yourNick != nick_)
+            LOGW("Cliente: apelido '%s' ja estava em uso; o servidor me chamou de '%s'", nick_.c_str(), w.yourNick.c_str());
         break;
     }
     case MsgType::Reject: {

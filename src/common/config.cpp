@@ -107,6 +107,7 @@ CoopConfig configFromIni(const IniFile& ini, std::string* warnings) {
     c.autoStart = ini.getBool(S, "AutoStart", c.autoStart);
     c.sendRateHz = std::clamp(ini.getInt(S, "SendRate", c.sendRateHz), 5, 60);
     c.interpDelayMs = std::clamp(ini.getInt(S, "InterpDelayMs", c.interpDelayMs), 0, 500);
+    c.remotePedCollision = ini.getBool(S, "RemotePedCollision", c.remotePedCollision);
     c.timeoutMs = std::clamp(ini.getInt(S, "TimeoutMs", c.timeoutMs), 3000, 60000);
     c.showNametags = ini.getBool(S, "ShowNametags", c.showNametags);
     c.nametagDistance = float(std::clamp(ini.getInt(S, "NametagDistance", int(c.nametagDistance)), 5, 500));
@@ -117,6 +118,7 @@ CoopConfig configFromIni(const IniFile& ini, std::string* warnings) {
     c.keyStart = ini.getInt(K, "Start", c.keyStart);
     c.keyToggleMode = ini.getInt(K, "ToggleMode", c.keyToggleMode);
     c.keyDisconnect = ini.getInt(K, "Disconnect", c.keyDisconnect);
+    c.keyUnstuck = ini.getInt(K, "Unstuck", c.keyUnstuck);
     std::string chatKey = ini.get(K, "Chat", "T");
     if (chatKey.size() == 1 && std::isalnum(static_cast<unsigned char>(chatKey[0])))
         c.keyChat = std::toupper(static_cast<unsigned char>(chatKey[0]));
@@ -142,10 +144,12 @@ std::string defaultIniText() {
         "Skin=106\r\n"
         "; 1 = conecta/hospeda sozinho quando o jogo carrega o mapa\r\n"
         "AutoStart=0\r\n"
-        "; Pacotes de posicao por segundo (5-60)\r\n"
-        "SendRate=20\r\n"
-        "; Atraso de interpolacao em ms (maior = mais suave, menor = mais responsivo)\r\n"
-        "InterpDelayMs=100\r\n"
+        "; Pacotes de posicao por segundo (5-60). Padrao 30.\r\n"
+        "SendRate=30\r\n"
+        "; Atraso de interpolacao em ms (maior = mais suave, menor = mais responsivo). Padrao 120.\r\n"
+        "InterpDelayMs=120\r\n"
+        "; 0 = bonecos dos outros jogadores NAO tem colisao (nunca prendem/empurram voce). 1 = com colisao (antigo)\r\n"
+        "RemotePedCollision=0\r\n"
         "; Tempo sem resposta ate considerar o jogador caido (ms)\r\n"
         "TimeoutMs=10000\r\n"
         "ShowNametags=1\r\n"
@@ -158,6 +162,8 @@ std::string defaultIniText() {
         "Menu=0x77\r\n"
         "ToggleMode=0x78\r\n"
         "Disconnect=0x79\r\n"
+        "; F6 com o menu (F8) aberto = soltar o boneco (mesmo que /soltar no chat)\r\n"
+        "Unstuck=0x75\r\n"
         "Chat=T\r\n";
 }
 

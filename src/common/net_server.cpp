@@ -161,14 +161,21 @@ void Server::handleHello(ENetPeer* peer, const uint8_t* data, size_t len) {
     for (int i = 0; i < opt_.maxPlayers; ++i) if (!slots_[i].used) { slot = i; break; }
     if (slot < 0) { reject(RejectReason::ServerFull, ""); return; }
 
+    std::string wanted = nick;
     nick = uniqueNick(nick);
+    if (nick != wanted) {
+        char ip[64] = "?";
+        enet_address_get_host_ip(&peer->address, ip, sizeof ip);
+        LOGW("Servidor: apelido duplicado '%s' (de %s): ja em uso, entrou como '%s'", wanted.c_str(), ip, nick.c_str());
+        duplicateNicks_++;
+    }
     Slot& s = slots_[slot];
     s = Slot();
     s.used = true; s.peer = peer; s.nick = nick;
     s.skin = isValidPedSkin(h.skin) ? h.skin : 106;
     setPeerSlot(peer, slot);
 
-    WelcomeMsg w; w.yourId = uint8_t(slot); w.maxPlayers = uint8_t(opt_.maxPlayers); w.serverName = opt_.name;
+    WelcomeMsg w; w.yourId = uint8_t(slot); w.maxPlayers = uint8_t(opt_.maxPlayers); w.serverName = opt_.name; w.yourNick = nick;
     sendTo(peer, encode(w), true);
     // Tell the newcomer about everyone already here.
     for (int i = 0; i < LBN_MAX_PLAYERS; ++i) {
@@ -180,6 +187,8 @@ void Server::handleHello(ENetPeer* peer, const uint8_t* data, size_t len) {
     broadcast(encode(me), true, slot);
     LOGI("Servidor: '%s' entrou (id %d, skin %u)", nick.c_str(), slot, unsigned(s.skin));
     broadcastSystem(nick + " entrou no jogo");
+    if (nick != wanted)
+        broadcastSystem("Apelido '" + wanted + "' ja estava em uso: renomeado para '" + nick + "' (mude Nickname no LbnCoopSA.ini)");
 }
 
 void Server::onReceive(ENetPeer* peer, const uint8_t* data, size_t len) {

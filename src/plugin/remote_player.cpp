@@ -14,6 +14,8 @@ constexpr uint32_t kWarpRetryMs = 600;
 constexpr uint32_t kCreateRetryMs = 2000;
 }
 
+RemoteOptions& remoteOptions() { static RemoteOptions o; return o; }
+
 RemotePlayer::RemotePlayer(uint8_t id, std::string nick, uint16_t skin, const lbn::InterpConfig& cfg)
     : id_(id), nick_(std::move(nick)), skin_(skin), interp_(cfg) {}
 
@@ -63,7 +65,11 @@ bool RemotePlayer::ensurePed(const Vec3& pos) {
     scm::Call(scm::SET_CHAR_NEVER_TARGETTED).i(pedHandle_).i(1).run();
     scm::Call(scm::SET_CHAR_CANT_BE_DRAGGED_OUT).i(pedHandle_).i(1).run();
     scm::Call(scm::SET_CHAR_DROPS_WEAPONS_WHEN_DEAD).i(pedHandle_).i(0).run();
-    LOGI("Boneco de %s criado (handle %d, skin %u)", nick_.c_str(), pedHandle_, unsigned(skin_));
+    // v0.1.1: the avatar must never block, push or trap the local player (it is moved by the network
+    // anyway). SET_CHAR_COLLISION is the game's own script command (CEntity::bUsesCollision).
+    if (!remoteOptions().pedCollision) scm::Call(scm::SET_CHAR_COLLISION).i(pedHandle_).i(0).run();
+    LOGI("Boneco de %s criado (handle %d, skin %u, colisao %s)", nick_.c_str(), pedHandle_, unsigned(skin_),
+         remoteOptions().pedCollision ? "ligada" : "desligada");
     return true;
 }
 
@@ -159,9 +165,21 @@ void RemotePlayer::applyAnim(MoveAnim a) {
     scm::Call(scm::TASK_PLAY_ANIM).i(pedHandle_).s(name).s("PED").f(4.0f).i(1).i(0).i(0).i(0).i(-1).run();
 }
 
+void RemotePlayer::enforceNoCollision(void* p) {
+    if (remoteOptions().pedCollision || !p) return;
+    // The game turns collision back on when a ped leaves a vehicle; re-apply through the script command.
+    if (sa::at<uint32_t>(p, sa::off::entityFlags) & 1u) scm::Call(scm::SET_CHAR_COLLISION).i(pedHandle_).i(0).run();
+    // Without collision the ped never "touches" the ground; we place it on the sender's (grounded) position
+    // every frame, so keep it flagged as standing and not in the air to avoid falling animations/gravity.
+    uint32_t& pf = sa::at<uint32_t>(p, sa::off::pedFlags);
+    pf = (pf | 1u) & ~(1u << 9);
+    sa::at<uint32_t>(p, sa::off::physicalFlags) &= ~(1u << 1);
+}
+
 void RemotePlayer::applyOnFoot(const PlayerState& s) {
     void* p = ped();
     if (!p || sa::pedVehicle(p)) return;
+    enforceNoCollision(p);
     sa::setPedHeading(p, s.heading);
     sa::setPhysicalTransform(p, s.pos, nullptr, nullptr, nullptr, s.vel);
     applyAnim(s.anim);

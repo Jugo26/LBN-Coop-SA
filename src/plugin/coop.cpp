@@ -42,6 +42,8 @@ struct State {
     lbn::AsyncClient client;
     Session session = Session::Off;
     uint8_t selfId = 0xFF;
+    std::string selfNick;          // nickname the server gave us (may be "LBN_2" if ours was taken)
+    uint32_t lastUnstuckMs = 0;
     uint16_t selfPing = 0;
     std::map<uint8_t, std::unique_ptr<RemotePlayer>> remotes;
     std::map<uint8_t, std::string> names;
@@ -100,6 +102,7 @@ void stopSession(const std::string& why, uint32_t color, bool touchWorld = true)
     g->names.clear();
     g->session = Session::Off;
     g->selfId = 0xFF;
+    g->selfNick.clear();
     input::closeChat();
     if (touchWorld) setPlayerControl(true);
     if (!why.empty()) addLine(why, color);
@@ -186,19 +189,68 @@ bool captureLocal(PlayerState& s) {
     return lbn::isSaneState(s);
 }
 
+// /soltar: moves the local player ~3 m to a free spot (ground found, no wall/car/object, away from avatars).
+void unstuckLocal() {
+    void* ped = sa::findPlayerPed();
+    if (!ped) return;
+    uint32_t now = lbn::nowMs();
+    if (g->lastUnstuckMs && now - g->lastUnstuckMs < 2000) { addLine("Aguarde um pouco para usar /soltar de novo.", kColSystem); return; }
+    g->lastUnstuckMs = now;
+    if (sa::pedVehicle(ped)) { addLine("/soltar: saia do veiculo primeiro.", kColSystem); return; }
+    int h = scm::playerCharHandle();
+    if (h < 0) return;
+    Vec3 p; sa::entityPos(ped, p);
+    std::vector<Vec3> avoid;
+    float nearest = 1e9f; Vec3 away{1, 0, 0};
+    for (auto& kv : g->remotes) {
+        Vec3 q;
+        if (!kv.second->ped() || !sa::entityPos(kv.second->ped(), q)) continue;
+        avoid.push_back(q);
+        Vec3 d{p.x - q.x, p.y - q.y, 0};
+        float l = d.length();
+        if (l < nearest) { nearest = l; away = l > 0.05f ? d * (1.f / l) : Vec3{1, 0, 0}; }
+    }
+    float base = std::atan2(away.y, away.x);
+    for (float r : {3.0f, 4.0f, 2.5f, 5.0f}) {
+        for (int k = 0; k < 8; ++k) {
+            float a = base + (k % 2 ? 1.f : -1.f) * float((k + 1) / 2) * (lbn::kPi / 4.f);
+            float x = p.x + r * std::cos(a), y = p.y + r * std::sin(a);
+            scm::Call gz(scm::GET_GROUND_Z_FOR_3D_COORD);
+            gz.f(x).f(y).f(p.z + 2.0f).out(0);
+            gz.run();
+            float ground = gz.localf(0);
+            // p.z is the ped's centre (~1 m above its feet).
+            if (!(ground > -100.f) || ground == 0.f || std::fabs(ground - (p.z - 1.0f)) > 2.5f) continue;
+            bool blocked = scm::Call(scm::IS_AREA_OCCUPIED).f(x - 0.45f).f(y - 0.45f).f(ground + 0.3f)
+                               .f(x + 0.45f).f(y + 0.45f).f(ground + 1.9f).i(1).i(1).i(0).i(1).i(0).run();
+            if (blocked) continue;
+            bool nearAvatar = false;
+            for (auto& q : avoid) if ((Vec3{q.x - x, q.y - y, 0}).length() < 1.5f) nearAvatar = true;
+            if (nearAvatar) continue;
+            scm::Call(scm::SET_CHAR_COORDINATES).i(h).f(x).f(y).f(ground).run();
+            LOGI("/soltar: jogador movido de (%.1f, %.1f, %.1f) para (%.1f, %.1f, %.1f)", p.x, p.y, p.z, x, y, ground);
+            addLine("Voce foi movido " + std::to_string(int(r + 0.5f)) + " m para um lugar livre.", kColOk);
+            return;
+        }
+    }
+    LOGW("/soltar: nenhum lugar livre perto de (%.1f, %.1f, %.1f)", p.x, p.y, p.z);
+    addLine("/soltar: nao achei lugar livre por perto. Ande um pouco ou tente de novo.", kColError);
+}
+
 void handleCommand(const std::string& cmd) {
+    if (cmd == "/soltar" || cmd == "/unstuck") { unstuckLocal(); return; }
     if (cmd == "/sair" || cmd == "/quit") { stopSession("Voce saiu da sessao.", kColSystem); return; }
     if (cmd == "/ping") {
         addLine("Seu ping: " + std::to_string(g->client.pingMs()) + " ms", kColSystem);
         return;
     }
     if (cmd == "/jogadores" || cmd == "/players") {
-        std::string s = "Jogadores: " + g->cfg.nickname + " (voce)";
+        std::string s = "Jogadores: " + (g->selfNick.empty() ? g->cfg.nickname : g->selfNick) + " (voce)";
         for (auto& kv : g->remotes) s += ", " + kv.second->nick();
         addLine(s, kColSystem);
         return;
     }
-    addLine("Comandos: /ping /jogadores /sair", kColSystem);
+    addLine("Comandos: /ping /jogadores /soltar /sair", kColSystem);
 }
 
 void handleActions() {
@@ -214,6 +266,9 @@ void handleActions() {
         case input::Action::Disconnect:
             if (g->session == Session::Off) addLine("Voce nao esta em uma sessao.", kColSystem);
             else stopSession("Voce saiu da sessao.", kColSystem);
+            break;
+        case input::Action::Unstuck:
+            if (g->menuVisible) unstuckLocal();
             break;
         case input::Action::ChatOpened: setPlayerControl(false); break;
         case input::Action::ChatCancel: setPlayerControl(true); break;
@@ -237,7 +292,15 @@ void handleNetwork() {
         case lbn::ClientEvent::Connected:
             g->session = Session::Online;
             g->selfId = e.id;
-            addLine("Conectado a '" + e.text + "' como " + g->cfg.nickname + ". Aperte T para o chat.", kColOk);
+            g->selfNick = e.nick.empty() ? g->cfg.nickname : e.nick;
+            g->names[e.id] = g->selfNick;
+            addLine("Conectado a '" + e.text + "' como " + g->selfNick + ". Aperte T para o chat.", kColOk);
+            if (g->selfNick != g->cfg.nickname) {
+                LOGW("Apelido duplicado: '%s' ja estava em uso no servidor; voce entrou como '%s'",
+                     g->cfg.nickname.c_str(), g->selfNick.c_str());
+                addLine("Seu apelido '" + g->cfg.nickname + "' ja estava em uso: voce aparece como '" + g->selfNick +
+                        "'. Mude Nickname no LbnCoopSA.ini.", kColSystem);
+            }
             break;
         case lbn::ClientEvent::ConnectFailed:
             stopSession("Falha ao conectar: " + e.text + ". Confira IP, porta e firewall.", kColError);
@@ -250,6 +313,7 @@ void handleNetwork() {
             break;
         case lbn::ClientEvent::PlayerJoined:
             g->names[e.id] = e.nick;
+
             if (e.id != g->selfId && !g->remotes.count(e.id))
                 g->remotes[e.id] = std::make_unique<RemotePlayer>(e.id, e.nick, e.skin, g->interpCfg);
             LOGI("Jogador %s (id %u) na sessao", e.nick.c_str(), unsigned(e.id));
@@ -272,7 +336,7 @@ void handleNetwork() {
             if (e.id == lbn::kSystemSender) addLine(e.text, kColSystem);
             else {
                 auto n = g->names.find(e.id);
-                std::string who = e.id == g->selfId ? g->cfg.nickname : (n != g->names.end() ? n->second : "?");
+                std::string who = (n != g->names.end()) ? n->second : (e.id == g->selfId ? g->cfg.nickname : "?");
                 addLine(who + ": " + e.text, kColChat);
             }
             break;
@@ -292,7 +356,8 @@ void onProcess() {
     if (!g->firstFrameMs) g->firstFrameMs = now;
 
     if (!input::installed()) {
-        input::Keys k{g->cfg.keyMenu, g->cfg.keyStart, g->cfg.keyToggleMode, g->cfg.keyDisconnect, g->cfg.keyChat};
+        input::Keys k{g->cfg.keyMenu, g->cfg.keyStart, g->cfg.keyToggleMode, g->cfg.keyDisconnect, g->cfg.keyChat,
+                      g->cfg.keyUnstuck};
         if (input::install(k)) LOGI("Teclado: janela do jogo encontrada, atalhos ativos");
         else if (!g->inputWarned && now - g->firstFrameMs > 10000) {
             g->inputWarned = true;
@@ -378,7 +443,7 @@ void drawMenu(uint32_t now) {
     if (!g->menuVisible) {
         if (g->session == Session::Off && g->firstFrameMs && now - g->firstFrameMs < 20000) {
             overlay::text(sa::screenWidth() * 0.98f, sa::screenHeight() * 0.92f,
-                          "LBN Coop SA: F7 iniciar | F8 menu", overlay::rgba(255, 255, 255, 200), 0.8f, overlay::Right);
+                          "LBN Coop SA: F7 iniciar | F8 menu | preso? /soltar ou F8+F6", overlay::rgba(255, 255, 255, 200), 0.8f, overlay::Right);
         }
         return;
     }
@@ -391,7 +456,7 @@ void drawMenu(uint32_t now) {
     line(std::string("Estado: ") + st, g->session == Session::Online ? kColOk : kColSystem);
     if (g->cfg.mode == lbn::Mode::Host) line("Modo: HOST (porta UDP " + std::to_string(g->cfg.port) + ")", kColChat);
     else line("Modo: CLIENTE -> " + g->cfg.hostIp + ":" + std::to_string(g->cfg.port), kColChat);
-    line("Apelido: " + g->cfg.nickname + "  skin " + std::to_string(g->cfg.skin), kColChat);
+    line("Apelido: " + (g->selfNick.empty() ? g->cfg.nickname : g->selfNick) + "  skin " + std::to_string(g->cfg.skin), kColChat);
     if (g->session == Session::Online) {
         line("Voce: " + std::to_string(g->selfPing) + " ms", kColChat);
         for (auto& kv : g->remotes) {
@@ -400,7 +465,9 @@ void drawMenu(uint32_t now) {
             line(s, kColChat);
         }
     }
+    line("F6 soltar boneco (preso? = /soltar)", overlay::rgba(150, 220, 255));
     line("F7 iniciar  F9 trocar modo  F10 sair  T chat", overlay::rgba(200, 200, 200));
+    line("Chat: /ping /jogadores /soltar /sair", overlay::rgba(200, 200, 200));
 }
 
 void onDraw() {
@@ -478,9 +545,12 @@ bool init(HMODULE self) {
     g->cfg = lbn::configFromIni(ini, &warn);
     if (!warn.empty()) LOGW("Config: %s", warn.c_str());
     g->interpCfg.delayMs = uint32_t(g->cfg.interpDelayMs);
+    remoteOptions().pedCollision = g->cfg.remotePedCollision;
     LOGI("Config: apelido=%s modo=%s hostIP=%s porta=%u skin=%u autoStart=%d",
          g->cfg.nickname.c_str(), lbn::modeName(g->cfg.mode), g->cfg.hostIp.c_str(), unsigned(g->cfg.port),
          unsigned(g->cfg.skin), int(g->cfg.autoStart));
+    LOGI("Config: SendRate=%d InterpDelayMs=%d RemotePedCollision=%d", g->cfg.sendRateHz, g->cfg.interpDelayMs,
+         int(g->cfg.remotePedCollision));
 
     bool ok = hooks::redirectCall(sa::hookGameProcess, reinterpret_cast<void*>(&hkProcess), &g_origProcess) &&
               hooks::redirectCall(sa::hookDrawing, reinterpret_cast<void*>(&hkDrawing), &g_origDrawing);

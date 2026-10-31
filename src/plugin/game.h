@@ -61,7 +61,9 @@ constexpr uint32_t matrix         = 0x14;  // CPlaceable::m_matrix (CMatrix*)
 constexpr uint32_t modelIndex     = 0x22;  // CEntity::m_nModelIndex (int16)
 constexpr uint32_t moveSpeed      = 0x44;  // CPhysical::m_vecMoveSpeed (units per 1/50 s)
 constexpr uint32_t turnSpeed      = 0x50;  // CPhysical::m_vecTurnSpeed
-constexpr uint32_t pedFlags       = 0x46C; // CPed bitfield block; bit 8 = bInVehicle
+constexpr uint32_t entityFlags    = 0x1C;  // CEntity bitfield; bit 0 = bUsesCollision
+constexpr uint32_t physicalFlags  = 0x40;  // CPhysical bitfield; bit 1 = bApplyGravity
+constexpr uint32_t pedFlags       = 0x46C; // CPed bitfield block; bit 0 = bIsStanding, bit 8 = bInVehicle, bit 9 = bIsInTheAir
 constexpr uint32_t pedMoveState   = 0x534; // CPed::m_nMoveState
 constexpr uint32_t pedHealth      = 0x540; // float
 constexpr uint32_t pedArmour      = 0x548; // float

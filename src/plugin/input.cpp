@@ -67,6 +67,7 @@ LRESULT CALLBACK wndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         if (int(wp) == g_keys.start) { g_actions.push_back(Action::Start); return 0; }
         if (int(wp) == g_keys.toggleMode) { g_actions.push_back(Action::ToggleMode); return 0; }
         if (int(wp) == g_keys.disconnect) { g_actions.push_back(Action::Disconnect); return 0; }
+        if (int(wp) == g_keys.unstuck && !(lp & (1 << 30))) { g_actions.push_back(Action::Unstuck); return 0; }
         if (int(wp) == g_keys.chat && g_chatAllowed && !(lp & (1 << 30))) {
             g_chatOpen = true;
             g_buffer.clear();
@@ -139,6 +140,11 @@ std::vector<Action> drainActions() {
     std::vector<Action> out;
     out.swap(g_actions);
     return out;
+}
+
+void injectForTest(Action a, const std::string& text) {
+    if (a == Action::ChatSubmit) g_submitted = text;
+    g_actions.push_back(a);
 }
 
 std::string takeSubmitted() {

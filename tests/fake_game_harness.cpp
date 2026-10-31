@@ -36,6 +36,9 @@ static std::map<uint16_t, int> g_opCount;
 static std::vector<std::string> g_errors;
 static int g_rwMatrixCalls = 0, g_removeAndAddCalls = 0, g_headingCalls = 0, g_prints = 0, g_screenCalls = 0;
 static std::vector<std::string> g_anims;
+static int g_playerHandle = -1;
+static int g_areaBlockedReplies = 0;   // IS_AREA_OCCUPIED answers "occupied" this many times
+static float g_groundZ = 12.3f;
 
 template <class T> static T& F(void* base, uint32_t o) { return *reinterpret_cast<T*>(static_cast<uint8_t*>(base) + o); }
 
@@ -93,6 +96,7 @@ static const std::map<uint16_t, int> kParamCount = {
     {0x0229, 3}, {0x0247, 1}, {0x0248, 1}, {0x0249, 1}, {0x02AB, 6}, {0x02AC, 6}, {0x0362, 4},
     {0x036A, 2}, {0x038B, 0}, {0x039E, 2}, {0x0430, 3}, {0x0568, 2}, {0x0605, 9}, {0x0687, 1},
     {0x087E, 2}, {0x0918, 2},
+    {0x01F5, 2}, {0x0619, 2}, {0x02CE, 4}, {0x0339, 11},
 };
 
 struct Param { uint8_t type; int32_t i; float f; std::string s; };
@@ -149,6 +153,15 @@ static char __thiscall fProcessOne(void* sc) {
         break;
     }
     case 0x0605: g_anims.push_back(ps[1].s + "/" + ps[2].s); break;
+    case 0x0619: { void* ped = fGetPed(ps[0].i); if (ped) { if (ps[1].i) F<uint32_t>(ped, 0x1C) |= 1u; else F<uint32_t>(ped, 0x1C) &= ~1u; } break; }
+    case 0x01F5: setLocal(ps[1], g_playerHandle); break;
+    case 0x02CE: { int32_t bits; std::memcpy(&bits, &g_groundZ, 4); setLocal(ps[3], bits); break; }
+    case 0x0339: if (g_areaBlockedReplies > 0) { g_areaBlockedReplies--; F<uint8_t>(sc, 0xC5) = 1; } break;
+    case 0x00A1: {
+        void* ped = fGetPed(ps[0].i);
+        if (ped) { uint8_t* mat = F<uint8_t*>(ped, 0x14); F<float>(mat, 0x30) = fl(1); F<float>(mat, 0x34) = fl(2); F<float>(mat, 0x38) = fl(3) + 1.f; }
+        break;
+    }
     default: break;
     }
     return 0;
@@ -212,10 +225,11 @@ static int childMain(int argc, char** argv) {
     std::string dir = asi.substr(0, asi.find_last_of("\\/"));
     std::string ini = dir + "\\LbnCoopSA.ini";
     if (FILE* f = std::fopen(ini.c_str(), "wb")) {
-        std::fprintf(f, "[LbnCoopSA]\nNickname=HostLBN\nMode=host\nPort=%d\nSkin=107\nAutoStart=1\nSendRate=20\nInterpDelayMs=100\n", port);
+        std::fprintf(f, "[LbnCoopSA]\nNickname=HostLBN\nMode=host\nPort=%d\nSkin=107\nAutoStart=1\nSendRate=30\nInterpDelayMs=120\n", port);
         std::fclose(f);
     }
     SetEnvironmentVariableA("LBN_COOP_NO_DIALOG", "1");
+    SetEnvironmentVariableA("LBN_COOP_TEST", "1");
 
     std::printf("[1] Carregando o ASI...\n");
     HMODULE h = LoadLibraryA(asi.c_str());
@@ -237,6 +251,8 @@ static int childMain(int argc, char** argv) {
     std::printf("[3] Criando o CJ falso e deixando o AutoStart hospedar...\n");
     int playerHandle;
     uint8_t* player = newEntity(false, 0, 2495.f, -1665.f, 13.3f, &playerHandle);
+    g_playerHandle = playerHandle;
+    F<uint32_t>(player, 0x1C) |= 1u; // the real player uses collision
     F<float>(player, 0x540) = 100.f; F<float>(player, 0x558) = 0.5f; F<int>(player, 0x534) = 6; // running
     F<float>(player, 0x44) = 0.1f; // 5 m/s along X
     *reinterpret_cast<void**>(0xB7CD98) = player;
@@ -288,6 +304,50 @@ static int childMain(int argc, char** argv) {
         std::printf("  avatar x=%.2f (esperado ~%.2f)\n", ax, expected);
         EXPECT(std::fabs(ax - expected) < 1.0f);
         EXPECT(F<int16_t>(avatar, 0x22) == 106);
+        // v0.1.1: the avatar must not collide with the local player.
+        EXPECT(g_opCount[0x0619] >= 1);
+        EXPECT((F<uint32_t>(avatar, 0x1C) & 1u) == 0);       // CEntity::bUsesCollision off
+        EXPECT((F<uint32_t>(avatar, 0x46C) & 1u) == 1u);     // kept "standing" (no fall anim)
+        EXPECT((F<uint32_t>(player, 0x1C) & 1u) == 1u);      // local player untouched
+        // The game re-enables collision e.g. after leaving a car: the plugin must turn it off again.
+        F<uint32_t>(avatar, 0x1C) |= 1u;
+        uint32_t tc = nowMs();
+        while (nowMs() - tc < 200) { if (nowMs() - lastSend >= 33) { lastSend = nowMs(); sendFriend(false, 1.5f); } frame(); }
+        EXPECT((F<uint32_t>(avatar, 0x1C) & 1u) == 0);
+    }
+
+    std::printf("[4b] /soltar e F6 (menu aberto)...\n");
+    {
+        using InjectFn = void(__cdecl*)(int, const char*);
+        auto inject = reinterpret_cast<InjectFn>(GetProcAddress(h, "LbnCoopSA_TestInject"));
+        EXPECT(inject != nullptr);
+        uint8_t* pm = F<uint8_t*>(player, 0x14);
+        auto ppos = [&]() { return Vec3{F<float>(pm, 0x30), F<float>(pm, 0x34), F<float>(pm, 0x38)}; };
+        // Put the local player right on top of the avatar (the reported bug) and ask to get free.
+        if (avatar) { uint8_t* am = F<uint8_t*>(avatar, 0x14); F<float>(pm, 0x30) = F<float>(am, 0x30); F<float>(pm, 0x34) = F<float>(am, 0x34); }
+        Vec3 before = ppos();
+        g_areaBlockedReplies = 2; // first two candidate spots are "occupied" (wall/car)
+        int setCoords = g_opCount[0x00A1];
+        if (inject) inject(6, "/soltar");
+        for (int i = 0; i < 3; ++i) frame();
+        Vec3 after = ppos();
+        float moved = (Vec3{after.x - before.x, after.y - before.y, 0}).length();
+        std::printf("  /soltar: movido %.2f m, z=%.2f\n", moved, after.z);
+        EXPECT(g_opCount[0x00A1] == setCoords + 1);
+        EXPECT(moved > 2.4f && moved < 5.1f);
+        EXPECT(std::fabs(after.z - (g_groundZ + 1.f)) < 0.01f);
+        EXPECT(g_opCount[0x0339] >= 3);
+        // F6 only acts while the F8 menu is open.
+        Sleep(2100);
+        if (inject) inject(8, nullptr);       // F6 with the menu closed: ignored
+        for (int i = 0; i < 3; ++i) frame();
+        EXPECT(g_opCount[0x00A1] == setCoords + 1);
+        if (inject) { inject(1, nullptr); inject(8, nullptr); } // F8 then F6
+        for (int i = 0; i < 3; ++i) frame();
+        EXPECT(g_opCount[0x00A1] == setCoords + 2);
+        if (inject) inject(1, nullptr);       // close menu
+        frame();
+        F<float>(pm, 0x30) = 2495.f; F<float>(pm, 0x34) = -1665.f; F<float>(pm, 0x38) = 13.3f; // back for step [5]
     }
     t0 = nowMs();
     while (nowMs() - t0 < 1500) { if (nowMs() - lastSend >= 50) { lastSend = nowMs(); sendFriend(true, 1.5f + (nowMs() - t0) / 1000.f); } frame(); }

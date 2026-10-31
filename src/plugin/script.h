@@ -30,6 +30,10 @@ enum Op : uint16_t {
     CLEAR_CHAR_TASKS = 0x0687,
     SET_CHAR_DROPS_WEAPONS_WHEN_DEAD = 0x087E,
     SET_CAR_ENGINE_ON = 0x0918,
+    GET_PLAYER_CHAR = 0x01F5,
+    SET_CHAR_COLLISION = 0x0619,
+    GET_GROUND_Z_FOR_3D_COORD = 0x02CE,
+    IS_AREA_OCCUPIED = 0x0339,
 };
 
 // Builds the bytecode for one command and executes it with a private CRunningScript.
@@ -43,6 +47,7 @@ public:
     // Executes; returns the condition flag (meaningful only for conditional opcodes).
     bool run();
     int32_t local(int idx) const;
+    float localf(int idx) const;   // output local read as float
     bool overflow() const { return overflow_; }
 private:
     void put(const void* p, size_t n);
@@ -60,5 +65,6 @@ void deleteChar(int handle);
 int createCar(int model, float x, float y, float z);
 void deleteCar(int handle);
 void releaseCar(int handle);
+int playerCharHandle();   // handle of the local player's ped (CJ), -1 if none
 
 } // namespace scm

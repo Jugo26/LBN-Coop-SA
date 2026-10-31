@@ -46,6 +46,7 @@ public:
 
     std::vector<ServerPlayerInfo> players() const;
     uint64_t relayedStates() const { return relayed_; }
+    uint32_t duplicateNicks() const { return duplicateNicks_; }
 
 private:
     struct Slot {
@@ -71,6 +72,7 @@ private:
     Slot slots_[LBN_MAX_PLAYERS];
     uint32_t lastPings_ = 0;
     std::atomic<uint64_t> relayed_{0};
+    std::atomic<uint32_t> duplicateNicks_{0};
     mutable std::mutex mu_;
     std::thread thread_;
     std::atomic<bool> threadRun_{false};

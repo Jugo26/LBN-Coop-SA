@@ -6,6 +6,12 @@
 
 class RemotePlayer;
 
+// Process-wide avatar options (from the ini).
+struct RemoteOptions {
+    bool pedCollision = false; // false: avatars never collide with (block, push, trap) the local player
+};
+RemoteOptions& remoteOptions();
+
 // Lets an avatar look up vehicles owned by other avatars or by the local player.
 struct WorldLookup {
     uint8_t selfId = 0xFF;
@@ -45,6 +51,7 @@ private:
     void dropVehicle(void* localVehicle);
     void applyOnFoot(const lbn::PlayerState& s);
     void applyAnim(lbn::MoveAnim a);
+    void enforceNoCollision(void* ped);
     void warpInto(void* veh, int vehHandle, int seat, uint32_t nowMs);
     void warpOut(const lbn::Vec3& pos, uint32_t nowMs);
 

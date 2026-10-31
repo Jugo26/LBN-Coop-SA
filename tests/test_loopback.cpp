@@ -102,6 +102,13 @@ TEST(loopback_duplicate_nick_renamed) {
     b.connect("127.0.0.1", o.port, "LBN", 106, 3000);
     CHECK(pumpUntil(srv, {&a, &b}, [&] { return countType(ev[0], ClientEvent::PlayerJoined) >= 1; }, 3000, &ev));
     for (auto& e : ev[0]) if (e.type == ClientEvent::PlayerJoined) CHECK(e.nick == "LBN_2");
+    CHECK(srv.duplicateNicks() == 1);
+    bool gotAssigned = false;
+    for (auto& e : ev[1]) if (e.type == ClientEvent::Connected) gotAssigned = (e.nick == "LBN_2");
+    CHECK(gotAssigned);
+    CHECK(pumpUntil(srv, {&a, &b}, [&] {
+        for (auto& e : ev[1]) if (e.type == ClientEvent::Chat && e.text.find("ja estava em uso") != std::string::npos) return true;
+        return false; }, 3000, &ev));
     a.disconnect(100); b.disconnect(100);
     srv.stop();
 }

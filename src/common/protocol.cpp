@@ -100,7 +100,7 @@ std::vector<uint8_t> encode(const HelloMsg& m) {
 }
 std::vector<uint8_t> encode(const WelcomeMsg& m) {
     ByteWriter w; w.u8(uint8_t(MsgType::Welcome));
-    w.u8(m.yourId); w.u8(m.maxPlayers); w.str(m.serverName, 64);
+    w.u8(m.yourId); w.u8(m.maxPlayers); w.str(m.serverName, 64); w.str(m.yourNick, kMaxNickLen);
     return w.data();
 }
 std::vector<uint8_t> encode(const RejectMsg& m) {
@@ -166,6 +166,7 @@ bool decode(const uint8_t* p, size_t n, WelcomeMsg& m) {
     ByteReader r(p, n);
     if (!begin(r, MsgType::Welcome)) return false;
     m.yourId = r.u8(); m.maxPlayers = r.u8(); m.serverName = r.str();
+    m.yourNick = r.remaining() ? r.str() : std::string();
     return r.ok();
 }
 bool decode(const uint8_t* p, size_t n, RejectMsg& m) {

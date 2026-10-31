@@ -7,8 +7,8 @@
 // Keep in sync with dist/LbnCoopSA.version (scripts/build_all.sh writes it from this value).
 #define LBN_MOD_VERSION_MAJOR 0
 #define LBN_MOD_VERSION_MINOR 1
-#define LBN_MOD_VERSION_PATCH 0
-#define LBN_MOD_VERSION      "0.1.0"
+#define LBN_MOD_VERSION_PATCH 1
+#define LBN_MOD_VERSION      "0.1.1"
 #define LBN_COOP_VERSION     LBN_MOD_VERSION
 #define LBN_WIDEN2_(x) L##x
 #define LBN_WIDEN_(x) LBN_WIDEN2_(x)
