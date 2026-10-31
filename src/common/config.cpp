@@ -122,6 +122,13 @@ CoopConfig configFromIni(const IniFile& ini, std::string* warnings) {
     c.trafficDensityPct = std::clamp(ini.getInt(W, "TrafficDensity", c.trafficDensityPct), 0, 200);
     c.pedDensityPct = std::clamp(ini.getInt(W, "PedDensity", c.pedDensityPct), 0, 200);
     c.removeDuplicateCars = ini.getBool(W, "RemoveDuplicateCars", c.removeDuplicateCars);
+    const char* J = "Janela";
+    c.windowed = ini.getBool(J, "Janela", c.windowed);
+    c.windowWidth = std::clamp(ini.getInt(J, "LarguraJanela", c.windowWidth), 640, 7680);
+    c.windowHeight = std::clamp(ini.getInt(J, "AlturaJanela", c.windowHeight), 480, 4320);
+    c.twoCopies = ini.getBool(J, "DuasCopias", c.twoCopies);
+    c.backgroundRun = ini.getBool(J, "SegundoPlano", c.backgroundRun);
+    if (c.twoCopies && !c.windowed) { warn("DuasCopias=1 precisa do modo janela: usando Janela=1."); c.windowed = true; }
     c.keyMenu = ini.getInt(K, "Menu", c.keyMenu);
     c.keyStart = ini.getInt(K, "Start", c.keyStart);
     c.keyToggleMode = ini.getInt(K, "ToggleMode", c.keyToggleMode);
@@ -188,7 +195,25 @@ std::string defaultIniText() {
         "TrafficDensity=100\r\n"
         "PedDensity=100\r\n"
         "; (vale para cada um) 1 = apaga a SUA copia vazia de um carro estacionado/de transito que um amigo pegou\r\n"
-        "RemoveDuplicateCars=1\r\n";
+        "RemoveDuplicateCars=1\r\n"
+        "\r\n"
+        "[Janela]\r\n"
+        "; Vale para cada um. 1 = jogo em janela (com borda), no tamanho abaixo\r\n"
+        "Janela=0\r\n"
+        "LarguraJanela=1280\r\n"
+        "AlturaJanela=720\r\n"
+        "; 1 = deixa abrir o jogo DUAS vezes neste PC (para testar sozinho); a segunda copia entra na primeira\r\n"
+        "; como amigo (127.0.0.1) e grava LbnCoopSA-2.log. Liga o modo janela.\r\n"
+        "DuasCopias=0\r\n"
+        "; 1 = durante a sessao o jogo continua rodando quando voce troca de janela, e o menu ESC nao congela\r\n"
+        "; o mundo enquanto houver outro jogador conectado. 0 = pausa normal do jogo.\r\n"
+        "SegundoPlano=1\r\n";
+}
+
+void applySecondCopy(CoopConfig& c) {
+    c.mode = Mode::Join;
+    c.hostIp = "127.0.0.1";
+    c.nickname = c.nickname.substr(0, kMaxNickLen - 2) + "_2";
 }
 
 std::string latin1ToUtf8(const std::string& in) {

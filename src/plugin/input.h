@@ -16,6 +16,8 @@ bool installed();
 
 // Chat may only be opened while this returns true (set by the coop controller every frame).
 void setChatAllowed(bool allowed);
+// While on, losing the focus does not stop the game (set by the coop controller every frame).
+void setBackgroundRun(bool on);
 bool chatOpen();
 const std::string& chatBuffer(); // UTF-8
 void closeChat();

@@ -227,6 +227,55 @@ static void writeCallRet(uintptr_t at, void* to) {
     p[0] = 0xE8; int32_t rel = int32_t(reinterpret_cast<uintptr_t>(to) - (at + 5)); std::memcpy(p + 1, &rel, 4);
     p[5] = 0xC3;
 }
+static void writeCall(uintptr_t at, uintptr_t to) {
+    uint8_t* p = reinterpret_cast<uint8_t*>(at);
+    p[0] = 0xE8; int32_t rel = int32_t(to - (at + 5)); std::memcpy(p + 1, &rel, 4);
+}
+
+// ---------------- v0.1.3: video modes, psSelectDevice fragment, game window ----------------
+struct FakeVideoMode { int32_t width, height, depth, flags, refRate, format; };
+static const FakeVideoMode kModes[3] = {{1920, 1080, 32, 1, 60, 0}, {1280, 720, 32, 1, 60, 0}, {1920, 1080, 32, 0, 0, 0}};
+static FakeVideoMode g_vmi{};
+static int g_setModeArg = -1, g_menuActivations = 0, g_soundPauses = 0;
+static int __cdecl fGetNumModes() { return 3; }
+static FakeVideoMode* __cdecl fGetModeInfo(FakeVideoMode* out, int i) { if (i >= 0 && i < 3) *out = kModes[i]; return out; }
+static int __cdecl fSetMode(int i) { g_setModeArg = i; return 1; }
+
+// The bytes of psSelectDevice around its two calls (sites 0x7462D1 and 0x7462EA, as in the 1.0 US exe).
+static void writePsSelectDeviceFragment() {
+    uint8_t* p = reinterpret_cast<uint8_t*>(0x7462C0);
+    std::memset(p, 0x90, 0x40);
+    const uint8_t a[] = {0x8B, 0x15, 0x20, 0x62, 0x8D, 0x00, 0x52, 0x68}; // mov edx,[GcurSelVM]; push edx; push imm32
+    std::memcpy(p, a, sizeof a);
+    uint32_t vmi = uint32_t(reinterpret_cast<uintptr_t>(&g_vmi));
+    std::memcpy(p + 8, &vmi, 4);
+    writeCall(0x7462D1, 0x7F2CF0);                                          // RwEngineGetVideoModeInfo(&vm, GcurSelVM)
+    const uint8_t b[] = {0x83, 0xC4, 0x08, 0x8B, 0x0D, 0x20, 0x62, 0x8D, 0x00, 0x51}; // add esp,8; mov ecx,[GcurSelVM]; push ecx
+    std::memcpy(p + 0x16, b, sizeof b);
+    writeCall(0x7462EA, 0x7F2D50);                                          // RwEngineSetVideoMode(GcurSelVM)
+    const uint8_t c[] = {0x83, 0xC4, 0x04, 0xC3};                           // add esp,4; ret
+    std::memcpy(p + 0x2F, c, sizeof c);
+}
+
+// Mimics what the game's WndProc does with the focus messages (gta-reversed WndProc.cpp).
+static LRESULT CALLBACK fakeGameWndProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
+    uint8_t& fg = *reinterpret_cast<uint8_t*>(0x8D621C);
+    switch (m) {
+    case WM_ACTIVATE: fg = LOWORD(wp) != WA_INACTIVE; if (!fg) g_soundPauses++; return 0;
+    case WM_KILLFOCUS: fg = 0; return 0;
+    case WM_SETFOCUS: fg = 1; g_menuActivations++; return 0;
+    default: return DefWindowProcA(h, m, wp, lp);
+    }
+}
+static HWND makeGameWindow() {
+    WNDCLASSA wc{};
+    wc.lpfnWndProc = fakeGameWndProc;
+    wc.hInstance = GetModuleHandleA(nullptr);
+    wc.lpszClassName = "Grand theft auto San Andreas";
+    if (!RegisterClassA(&wc)) return nullptr;
+    return CreateWindowExA(0, wc.lpszClassName, "GTA: San Andreas", WS_POPUP, 0, 0, 640, 480, nullptr, nullptr, wc.hInstance, nullptr);
+}
+
 static int g_origProcessCalls = 0, g_origDrawCalls = 0, g_origShutdownCalls = 0, g_origInitScriptsCalls = 0;
 static void __cdecl origProcess() { g_origProcessCalls++; }
 static void __cdecl origDraw() { g_origDrawCalls++; }
@@ -277,13 +326,27 @@ static int childMain(int argc, char** argv) {
         F<uint8_t*>(pool, 0) = g_poolObjects; F<uint8_t*>(pool, 4) = g_poolFlags; F<int>(pool, 8) = 3; F<int>(pool, 12) = 0;
         *reinterpret_cast<uint8_t**>(0xB74494) = pool;
     }
+    // v0.1.3: IsAlreadyRunning ("mov eax,[0x8D6224]" ... "mov al,1; ret" = another copy is running),
+    // RenderWare video mode functions, the psSelectDevice fragment and the game window.
+    const uint8_t alreadyRunning[] = {0xA1, 0x24, 0x62, 0x8D, 0x00, 0xB0, 0x01, 0xC3};
+    std::memcpy(reinterpret_cast<void*>(0x7468E0), alreadyRunning, sizeof alreadyRunning);
+    writeJmp(0x7F2CC0, reinterpret_cast<void*>(&fGetNumModes));
+    writeJmp(0x7F2CF0, reinterpret_cast<void*>(&fGetModeInfo));
+    writeJmp(0x7F2D50, reinterpret_cast<void*>(&fSetMode));
+    writePsSelectDeviceFragment();
+    *reinterpret_cast<int32_t*>(0x8D6220) = 1;   // GcurSelVM: the menu picked the 1280x720 fullscreen mode
+    *reinterpret_cast<uint8_t*>(0x8D621C) = 1;   // ForegroundApp
+    HWND gameWnd = makeGameWindow();
+    *reinterpret_cast<HWND*>(0xC8CF88) = gameWnd; // PsGlobal.window
+    if (!gameWnd) std::printf("  (nao consegui criar a janela falsa: testes de foco e de janela pulados)\n");
 
     // Write the ini next to the ASI: host mode, auto start.
     std::string asi = argv[1];
     std::string dir = asi.substr(0, asi.find_last_of("\\/"));
     std::string ini = dir + "\\LbnCoopSA.ini";
     if (FILE* f = std::fopen(ini.c_str(), "wb")) {
-        std::fprintf(f, "[LbnCoopSA]\nNickname=HostLBN\nMode=host\nPort=%d\nSkin=107\nAutoStart=1\nSendRate=30\nInterpDelayMs=120\n", port);
+        std::fprintf(f, "[LbnCoopSA]\nNickname=HostLBN\nMode=host\nPort=%d\nSkin=107\nAutoStart=1\nSendRate=30\nInterpDelayMs=120\n"
+                        "[Janela]\nJanela=1\nLarguraJanela=800\nAlturaJanela=600\nDuasCopias=1\nSegundoPlano=1\n", port);
         std::fclose(f);
     }
     SetEnvironmentVariableA("LBN_COOP_NO_DIALOG", "1");
@@ -302,9 +365,51 @@ static int childMain(int argc, char** argv) {
     EXPECT(hookedAway(0x53D910, reinterpret_cast<void*>(&origShutdown)));
     EXPECT(hookedAway(0x5D4FD7, reinterpret_cast<void*>(&origInitScripts)));
 
+    std::printf("[1b] v0.1.3: duas copias, mouse da janela de tras, modo janela...\n");
+    {
+        const uint8_t never[] = {0x33, 0xC0, 0xC3};
+        EXPECT(std::memcmp(reinterpret_cast<void*>(0x7468E0), never, sizeof never) == 0);
+        EXPECT(reinterpret_cast<bool(__cdecl*)()>(0x7468E0)() == false);   // the second copy may open
+        // The (hidden) game window is not in front: the game must not move or confine the mouse.
+        POINT before{};
+        if (gameWnd && GetCursorPos(&before)) {
+            SetCursorPos(before.x + 37, before.y + 11);
+            POINT after{}; GetCursorPos(&after);
+            EXPECT(after.x == before.x && after.y == before.y);
+            RECT clipBefore{}, clipAfter{}, tiny{0, 0, 10, 10};
+            GetClipCursor(&clipBefore);
+            ClipCursor(&tiny);
+            GetClipCursor(&clipAfter);
+            ClipCursor(nullptr);                                            // releasing always goes through
+            EXPECT(std::memcmp(&clipBefore, &clipAfter, sizeof clipBefore) == 0);
+        } else std::printf("  (sem cursor nesta sessao: teste do mouse pulado)\n");
+        // psSelectDevice with the 1280x720 fullscreen mode selected: the windowed mode (2) is used instead.
+        callSite(0x7462C0);
+        std::printf("  modo escolhido=%d GcurSelVM=%d flags=%d tela=%dx%d\n", g_setModeArg, *reinterpret_cast<int32_t*>(0x8D6220),
+                    g_vmi.flags, *reinterpret_cast<int*>(0xC17044), *reinterpret_cast<int*>(0xC17048));
+        EXPECT(g_setModeArg == 2 && *reinterpret_cast<int32_t*>(0x8D6220) == 2);
+        EXPECT(g_vmi.flags == 0);                                          // the rest of psSelectDevice goes the windowed way
+        EXPECT(*reinterpret_cast<uint8_t*>(0xC920CC) == 1);                // Windowed
+        EXPECT(*reinterpret_cast<int*>(0xC17044) == 800 && *reinterpret_cast<int*>(0xC17048) == 600);
+        if (gameWnd) {
+            RECT cr{}; GetClientRect(gameWnd, &cr);
+            EXPECT((GetWindowLongA(gameWnd, GWL_STYLE) & WS_CAPTION) == WS_CAPTION);
+            EXPECT(cr.right - cr.left == 800 && cr.bottom - cr.top == 600);
+        }
+        *reinterpret_cast<int*>(0xC17044) = 1920;                         // back to the size the overlay tests use
+        *reinterpret_cast<int*>(0xC17048) = 1080;
+    }
+
     std::printf("[2] Frames sem jogador (carregando)...\n");
     for (int i = 0; i < 30; ++i) { callSite(0x53E981); callSite(0x53E293); }
     EXPECT(g_origProcessCalls == 30 && g_origDrawCalls == 30);
+    if (gameWnd) {
+        // No session yet: losing the focus still reaches the game (normal pause).
+        *reinterpret_cast<uint8_t*>(0x8D621C) = 1;
+        SendMessageA(gameWnd, WM_KILLFOCUS, 0, 0);
+        EXPECT(*reinterpret_cast<uint8_t*>(0x8D621C) == 0);
+        *reinterpret_cast<uint8_t*>(0x8D621C) = 1;
+    }
 
     std::printf("[3] Criando o CJ falso e deixando o AutoStart hospedar...\n");
     int playerHandle;
@@ -325,6 +430,11 @@ static int childMain(int argc, char** argv) {
         Sleep(16);
     };
     for (int i = 0; i < 10; ++i) frame(); // AutoStart -> embedded server + local client
+    // Online but alone: the ESC menu still pauses the game as usual.
+    *reinterpret_cast<uint8_t*>(0xBA67A4) = 1; *reinterpret_cast<uint8_t*>(0xB7CB49) = 1;
+    frame();
+    EXPECT(*reinterpret_cast<uint8_t*>(0xB7CB49) == 1);
+    *reinterpret_cast<uint8_t*>(0xBA67A4) = 0; *reinterpret_cast<uint8_t*>(0xB7CB49) = 0;
     std::printf("[4] Amigo (cliente de rede real) entrando no host do ASI...\n");
     EXPECT(friendC.connect("127.0.0.1", uint16_t(port), "Amigo", 106, 4000));
     uint32_t t0 = nowMs();
@@ -519,6 +629,28 @@ static int childMain(int argc, char** argv) {
         EXPECT(std::fabs(F<float>(m, 0x10) - 1.f) < 0.01f); // forward axis = +X as sent
     }
 
+    std::printf("[4e] v0.1.3: segundo plano e pausa sem congelar com o amigo conectado...\n");
+    {
+        // A friend is in: the ESC menu must not freeze the world.
+        *reinterpret_cast<uint8_t*>(0xBA67A4) = 1; *reinterpret_cast<uint8_t*>(0xB7CB49) = 1;
+        frame();
+        EXPECT(*reinterpret_cast<uint8_t*>(0xB7CB49) == 0);
+        *reinterpret_cast<uint8_t*>(0xBA67A4) = 0;
+        if (gameWnd) {
+            // In a session, switching to another window keeps the game running and opens no pause menu.
+            int pauses = g_soundPauses, menus = g_menuActivations;
+            *reinterpret_cast<uint8_t*>(0x8D621C) = 1;
+            SendMessageA(gameWnd, WM_ACTIVATE, WA_INACTIVE, 0);
+            SendMessageA(gameWnd, WM_KILLFOCUS, 0, 0);
+            EXPECT(*reinterpret_cast<uint8_t*>(0x8D621C) == 1);
+            EXPECT(g_soundPauses == pauses);
+            SendMessageA(gameWnd, WM_SETFOCUS, 0, 0);
+            EXPECT(g_menuActivations == menus && *reinterpret_cast<uint8_t*>(0x8D621C) == 1);
+            SendMessageA(gameWnd, WM_ACTIVATE, WA_ACTIVE, 0);                 // coming back still reaches the game
+            EXPECT(*reinterpret_cast<uint8_t*>(0x8D621C) == 1);
+        }
+    }
+
     std::printf("[5] Estados do host recebidos pelo amigo...\n");
     int hostStates = 0; bool chatEcho = false; float lastHostX = 0;
     for (auto& e : got) {
@@ -561,7 +693,10 @@ static int childMain(int argc, char** argv) {
 // exists (otherwise the process heap lands on 0x400000), then let it run.
 static const uintptr_t kNeeded[] = {0x401000, 0x43E0C0, 0x446F90, 0x4648E0, 0x469EB0, 0x532B00, 0x53BDD7, 0x53D910,
                                     0x53E293, 0x53E981, 0x542560, 0x54FF90, 0x5BA340, 0x5D4FD7, 0x70CE30, 0x719380,
-                                    0x71A700, 0xB7CB48, 0xB7CD98, 0xBA67A4, 0xC17044, 0xB74494, 0xC8131C};
+                                    0x71A700, 0xB7CB48, 0xB7CD98, 0xBA67A4, 0xC17044, 0xB74494, 0xC8131C,
+                                    // v0.1.3: IsAlreadyRunning + psSelectDevice, RenderWare video modes,
+                                    // ForegroundApp/GcurSelVM, Windowed, PsGlobal
+                                    0x7468E0, 0x7F2CC0, 0x8D621C, 0xC920CC, 0xC8CF88};
 static int runParent(int argc, char** argv) {
     char self[MAX_PATH];
     GetModuleFileNameA(nullptr, self, MAX_PATH);

@@ -172,7 +172,15 @@ TEST(loopback_v011_protocol2_client_rejected) {
     HelloMsg hm; hm.version = 2; hm.nick = "Amigo"; hm.modVersion = "0.1.1";
     std::string detail;
     CHECK(helloRejectedAsBadVersion(hm, &detail));
-    CHECK(detail.find("host v0.1.2, voce v0.1.1") != std::string::npos);
+    CHECK(detail.find("host v" LBN_MOD_VERSION ", voce v0.1.1") != std::string::npos);
+}
+
+TEST(loopback_v012_client_rejected) {
+    // v0.1.3 keeps protocol 3, so only the mod version tells a v0.1.2 friend to update.
+    HelloMsg hm; hm.nick = "Amigo"; hm.modVersion = "0.1.2";
+    std::string detail;
+    CHECK(helloRejectedAsBadVersion(hm, &detail));
+    CHECK(detail.find("host v" LBN_MOD_VERSION ", voce v0.1.2") != std::string::npos);
 }
 
 namespace {

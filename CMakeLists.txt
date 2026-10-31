@@ -108,7 +108,8 @@ endif()
 if(LBN_BUILD_PLUGIN)
   add_library(LbnCoopSA SHARED
     src/plugin/dllmain.cpp src/plugin/game.cpp src/plugin/hooks.cpp src/plugin/script.cpp
-    src/plugin/coop.cpp src/plugin/remote_player.cpp src/plugin/overlay.cpp src/plugin/input.cpp)
+    src/plugin/coop.cpp src/plugin/remote_player.cpp src/plugin/overlay.cpp src/plugin/input.cpp
+    src/plugin/window.cpp)
   target_link_libraries(LbnCoopSA PRIVATE lbn_common user32 kernel32 ${LBN_STATIC_FLAGS})
   set_target_properties(LbnCoopSA PROPERTIES PREFIX "" SUFFIX ".asi" OUTPUT_NAME "LbnCoopSA")
   target_compile_options(LbnCoopSA PRIVATE -Wall -Wno-unused-parameter -fno-strict-aliasing)

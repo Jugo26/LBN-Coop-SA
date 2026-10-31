@@ -197,6 +197,7 @@ TEST(damage_world_session_roundtrip) {
 }
 
 TEST(protocol_version_is_3) {
+    // v0.1.3 adds no network message: same protocol, only the mod version changes.
     CHECK(LBN_PROTOCOL_VERSION == 3);
-    CHECK(std::string(LBN_MOD_VERSION) == "0.1.2");
+    CHECK(std::string(LBN_MOD_VERSION) == "0.1.3");
 }

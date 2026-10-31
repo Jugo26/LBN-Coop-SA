@@ -51,10 +51,17 @@ struct CoopConfig {
     int trafficDensityPct = 100;   // 0..200; != 100 forces the multiplier on everyone (host decides)
     int pedDensityPct = 100;
     bool removeDuplicateCars = true; // local: delete my empty parked/traffic copy of a car a friend took
+    // [Janela] (v0.1.3). Local to each player.
+    bool windowed = false;         // play in a window (needed for two copies on the same PC)
+    int windowWidth = 1280, windowHeight = 720;
+    bool twoCopies = false;        // let the game open twice on this PC; the second copy joins the first
+    bool backgroundRun = true;     // in a session: no pause when switching windows, the ESC menu keeps the world running
 };
 
 // Fills cfg from an ini file; returns a list of warnings (pt-BR) through `warnings`.
 CoopConfig configFromIni(const IniFile& ini, std::string* warnings = nullptr);
+// Second copy of the game on the same PC: join the first copy (127.0.0.1) as "<nick>_2".
+void applySecondCopy(CoopConfig& c);
 const char* modeName(Mode m);
 
 // Default ini text written when no file exists.

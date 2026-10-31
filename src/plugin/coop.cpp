@@ -13,6 +13,7 @@
 #include "overlay.h"
 #include "remote_player.h"
 #include "script.h"
+#include "window.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -43,6 +44,7 @@ struct State {
     Session session = Session::Off;
     uint8_t selfId = 0xFF;
     std::string selfNick;          // nickname the server gave us (may be "LBN_2" if ours was taken)
+    bool secondCopy = false;       // another copy of the game is already running on this PC
     uint32_t lastUnstuckMs = 0;
     uint16_t selfPing = 0;
     std::map<uint8_t, std::unique_ptr<RemotePlayer>> remotes;
@@ -625,6 +627,10 @@ void onProcess() {
     handleNetwork();
 
     bool online = g->session == Session::Online;
+    input::setBackgroundRun(g->cfg.backgroundRun && g->session != Session::Off);
+    // With friends connected the ESC menu must not freeze this world: they would see it stop too.
+    if (g->cfg.backgroundRun && online && !g->remotes.empty() && sa::global<uint8_t>(sa::kMenuActive))
+        sa::global<uint8_t>(sa::kUserPause) = 0;
     input::setChatAllowed(online && ped != nullptr);
     if (!online || !ped) return;
 
@@ -783,7 +789,10 @@ bool init(HMODULE self) {
     GetModuleFileNameA(self, buf, MAX_PATH);
     g->asiDir = dirOf(buf);
 
-    lbn::logOpen(g->gameDir + "\\LbnCoopSA.log", false);
+    // A second copy of the game on this PC must never truncate the first copy's log (the handle stays open).
+    HANDLE firstCopy = CreateMutexA(nullptr, FALSE, "Local\\LbnCoopSA_PrimeiraCopia");
+    g->secondCopy = firstCopy && GetLastError() == ERROR_ALREADY_EXISTS;
+    lbn::logOpen(g->gameDir + (g->secondCopy ? "\\LbnCoopSA-2.log" : "\\LbnCoopSA.log"), false);
     LOGI("%s %s carregado (protocolo %d)", LBN_COOP_NAME, LBN_COOP_VERSION, LBN_PROTOCOL_VERSION);
     LOGI("Pasta do jogo: %s", g->gameDir.c_str());
 
@@ -822,6 +831,17 @@ bool init(HMODULE self) {
     LOGI("Config [Mundo] (vale o do host): PvP=%d SyncClock=%d SyncWeather=%d SyncWanted=%d TrafficDensity=%d PedDensity=%d RemoveDuplicateCars=%d",
          int(g->cfg.pvp), int(g->cfg.syncClock), int(g->cfg.syncWeather), int(g->cfg.syncWanted),
          g->cfg.trafficDensityPct, g->cfg.pedDensityPct, int(g->cfg.removeDuplicateCars));
+    LOGI("Config [Janela]: Janela=%d %dx%d DuasCopias=%d SegundoPlano=%d", int(g->cfg.windowed), g->cfg.windowWidth,
+         g->cfg.windowHeight, int(g->cfg.twoCopies), int(g->cfg.backgroundRun));
+    if (g->secondCopy) {
+        if (g->cfg.twoCopies) {
+            lbn::applySecondCopy(g->cfg);
+            LOGI("Segunda copia do jogo neste PC: entra na primeira (127.0.0.1) como '%s'", g->cfg.nickname.c_str());
+        } else {
+            LOGW("O jogo ja esta aberto neste PC e DuasCopias=0: o proprio jogo vai fechar esta copia");
+        }
+    }
+    window::install(g->cfg, g->secondCopy);
 
     bool ok = hooks::redirectCall(sa::hookGameProcess, reinterpret_cast<void*>(&hkProcess), &g_origProcess) &&
               hooks::redirectCall(sa::hookDrawing, reinterpret_cast<void*>(&hkDrawing), &g_origDrawing);

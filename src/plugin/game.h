@@ -18,6 +18,11 @@ constexpr uintptr_t kScreenHeight   = 0xC17048; // RsGlobal.maximumHeight
 constexpr uintptr_t kVehiclePool    = 0xB74494; // CPool<CVehicle,CHeli>* CPools::ms_pVehiclePool
 constexpr uint32_t  kVehicleSlot    = 0xA18;    // sizeof(CHeli) = pool slot stride
 constexpr uintptr_t kWeatherNew     = 0xC8131C; // int16 CWeather::NewWeatherType
+// v0.1.3 (window / two copies / background), cross-checked with gta-reversed and the 1.0 US exe bytes.
+constexpr uintptr_t kForegroundApp  = 0x8D621C; // bool ForegroundApp: the WinMain loop only sleeps while false
+constexpr uintptr_t kGcurSelVM      = 0x8D6220; // int GcurSelVM: video mode picked by psSelectDevice
+constexpr uintptr_t kWindowed       = 0xC920CC; // bool Windowed (the game skips the intro videos when set)
+constexpr uintptr_t kPsGlobal       = 0xC8CF88; // psGlobalType PsGlobal; +0x0 = HWND window
 
 // ---------------- Functions ----------------
 constexpr uintptr_t fnCalcScreenCoors   = 0x70CE30; // CSprite::CalcScreenCoors (cdecl)
@@ -31,6 +36,10 @@ constexpr uintptr_t fnPhysicalRemoveAndAdd = 0x542560; // CPhysical::RemoveAndAd
 constexpr uintptr_t fnPlaceableSetHeading  = 0x43E0C0; // CPlaceable::SetHeading(float) (thiscall)
 constexpr uintptr_t fnScriptInit           = 0x4648E0; // CRunningScript::Init (thiscall)
 constexpr uintptr_t fnScriptProcessOne     = 0x469EB0; // CRunningScript::ProcessOneCommand (thiscall)
+constexpr uintptr_t fnIsAlreadyRunning     = 0x7468E0; // bool IsAlreadyRunning() (cdecl), checked by WinMain
+constexpr uintptr_t fnRwGetNumVideoModes   = 0x7F2CC0; // RwEngineGetNumVideoModes() (cdecl)
+constexpr uintptr_t fnRwGetVideoModeInfo   = 0x7F2CF0; // RwEngineGetVideoModeInfo(RwVideoMode*, int) (cdecl)
+constexpr uintptr_t fnRwSetVideoMode       = 0x7F2D50; // RwEngineSetVideoMode(int) (cdecl)
 
 // CFont (all cdecl)
 constexpr uintptr_t fnFontSetScale        = 0x719380;
@@ -56,6 +65,8 @@ constexpr uintptr_t hookGameProcess = 0x53E981; // after CGame::Process  (plugin
 constexpr uintptr_t hookDrawing     = 0x53E293; // 2D drawing           (plugin-sdk drawingEvent)
 constexpr uintptr_t hookShutdownRw  = 0x53D910; // before RW shutdown    (plugin-sdk shutdownRwEvent)
 constexpr uintptr_t hookInitScripts[] = {0x53BDD7, 0x5BA340, 0x5D4FD7}; // CTheScripts::Init call sites
+constexpr uintptr_t hookGetVideoModeInfo = 0x7462D1; // psSelectDevice: RwEngineGetVideoModeInfo(&vm, GcurSelVM)
+constexpr uintptr_t hookSetVideoMode     = 0x7462EA; // psSelectDevice: RwEngineSetVideoMode(GcurSelVM)
 
 // ---------------- Structure offsets ----------------
 namespace off {

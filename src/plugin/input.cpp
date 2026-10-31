@@ -2,6 +2,7 @@
 #include "input.h"
 #include "../common/config.h"
 #include "../common/protocol.h"
+#include "game.h"
 #include <windows.h>
 
 namespace input {
@@ -11,6 +12,7 @@ HWND g_hwnd = nullptr;
 WNDPROC g_orig = nullptr;
 Keys g_keys{};
 bool g_chatAllowed = false;
+bool g_background = false;
 bool g_chatOpen = false;
 bool g_swallowNextChar = false;
 std::string g_buffer;
@@ -87,6 +89,16 @@ LRESULT CALLBACK wndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         break;
     case WM_KILLFOCUS:
         if (g_chatOpen) { g_chatOpen = false; g_buffer.clear(); g_actions.push_back(Action::ChatCancel); }
+        // The game would clear ForegroundApp, and its main loop only sleeps while that is false.
+        if (g_background) return 0;
+        break;
+    case WM_ACTIVATE:
+        // The game would pause its sounds and clear ForegroundApp.
+        if (g_background && LOWORD(wp) == WA_INACTIVE) return 0;
+        break;
+    case WM_SETFOCUS:
+        // The game would open the pause menu when the window comes back to the front.
+        if (g_background) { sa::global<uint8_t>(sa::kForegroundApp) = 1; return 0; }
         break;
     default: break;
     }
@@ -132,6 +144,7 @@ void setChatAllowed(bool allowed) {
     g_chatAllowed = allowed;
     if (!allowed && g_chatOpen) { g_chatOpen = false; g_buffer.clear(); g_actions.push_back(Action::ChatCancel); }
 }
+void setBackgroundRun(bool on) { g_background = on; }
 bool chatOpen() { return g_chatOpen; }
 const std::string& chatBuffer() { return g_buffer; }
 void closeChat() { g_chatOpen = false; g_buffer.clear(); }
